@@ -80,6 +80,7 @@ export function AcceptedFoods({ client }: { client: Client }) {
                   <IconButton icon="x" label={`Remove ${item.name}`} disabled={pending} onClick={()=>void save(list.filter(f=>f.id!==item.id),`${item.name} removed.`)}/>
                 </div>
                 {food ? <FoodComposition food={food} label={item.name}/> : <p className="text-xs text-muted">{item.foodId ? 'Library entry unavailable' : 'Existing text entry · no nutrient data linked'}</p>}
+                {item.note && <p className="mt-1 whitespace-pre-wrap text-xs text-ink-2">{item.note}</p>}
                 {linking===item.id && !food && <fieldset className="mt-2" disabled={pending}><FoodSearch placeholder={`Find a library match for ${item.name}…`} onPick={choice=>add(choice,index,item)}/></fieldset>}
               </li>
             })}

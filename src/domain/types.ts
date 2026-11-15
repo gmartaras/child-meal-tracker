@@ -152,7 +152,7 @@ export interface Assessment {
 }
 
 export interface Client {
-  resources?: {id: string; category: string; title: string; url: string}[]
+  resources?: {id: string; category: string; title: string; url: string; text?: string; media?: 'photo' | 'video' | 'archive' | 'pdf'}[]
   goals?: { id: string; text: string; due: string; done: boolean; outcome: string }[]
   id: string
   code: string
@@ -184,6 +184,7 @@ export const FOOD_GROUPS = [
   'Milk and dairy foods (or fortified alternatives)',
   'Meat, fish, eggs, beans and other protein',
   'Foods and drinks high in fat or sugar',
+  'Condiments',
 ] as const
 
 export interface AcceptedFood {

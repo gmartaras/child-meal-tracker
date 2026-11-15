@@ -123,7 +123,8 @@ function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analy
             <span className="tnum"><span className="font-semibold">{result.avg.energy.missing.length ? '≥ ' : ''}{fmt(result.avg.energy.v, 0)}</span> kcal/day</span>
             {low > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="low" compact /> {low} below LRNI</span>}
             {off > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="below" compact /> {off} outside target</span>}
-            {!low && !off && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
+            {!Object.keys(targets).length && <span>Reference values unavailable</span>}
+            {!!Object.keys(targets).length && !low && !off && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
           </div>
         ) : (
           <div className="mt-1 text-[12.5px] text-muted">No completed days yet</div>
@@ -269,14 +270,24 @@ function ClientResources({ client }: { client: Client }) {
   }
 
   return <details className="rounded-xl border border-line bg-surface p-4">
-    <summary className="cursor-pointer font-semibold">Files and handouts</summary>
-    <p className="my-3 text-sm text-ink-2">Link the family's completed diary, questionnaires and handouts in your practice Drive. File permissions are managed in Drive.</p>
+    <summary className="cursor-pointer font-semibold">Files and handouts <span className="text-sm font-normal text-muted">({resources.length})</span></summary>
+    <p className="my-3 text-sm text-ink-2">Read imported documents here. Photos and videos open in a private Drive preview.</p>
     <ul className="mb-3 space-y-2">{resources.map(resource => {
       const href = privateDriveLink(resource.url)
-      return <li key={resource.id} className="flex flex-wrap items-center gap-2">
+      const preview = href && ['photo', 'video', 'pdf'].includes(resource.media ?? '')
+        ? new URL(href).pathname.match(/^\/file\/d\/([\w-]+)\/view\/?$/)?.[1] : undefined
+      return <li key={resource.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line p-2.5">
         <span className="text-sm text-muted">{resource.category}</span>
         {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">{resource.title}</a> : <span>{resource.title}</span>}
-        <Button size="sm" disabled={pending} onClick={() => void saveList(resources.filter(r=>r.id!==resource.id))}>Remove link</Button>
+        <Button size="sm" disabled={pending} onClick={() => {
+          if ((resource.text || resource.media) && !confirmDialog('Remove this file from the client record? The original in Drive will remain.')) return
+          void saveList(resources.filter(r=>r.id!==resource.id))
+        }}>Remove file</Button>
+        {resource.text && <details className="w-full rounded-md bg-surface-2 px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium">Read in Mealtrace</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed text-ink-2">{resource.text}</pre>
+        </details>}
+        {preview && <DriveResourcePreview id={preview} title={resource.title} />}
       </li>
     })}</ul>
     <form className="grid gap-2 sm:grid-cols-3" onSubmit={async event=>{
@@ -292,6 +303,14 @@ function ClientResources({ client }: { client: Client }) {
     </form>
     <p role="status" className="mt-2 text-sm">{status}</p>
   </details>
+}
+
+function DriveResourcePreview({ id, title }: { id: string; title: string }) {
+  const [open, setOpen] = useState(false)
+  return <div className="w-full">
+    <Button size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Close preview' : 'Preview in Mealtrace'}</Button>
+    {open && <iframe title={title} src={`https://drive.google.com/file/d/${id}/preview`} referrerPolicy="no-referrer" allowFullScreen className="mt-2 aspect-video w-full rounded-lg border border-line" />}
+  </div>
 }
 
 export default function ClientPage() {

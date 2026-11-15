@@ -147,6 +147,8 @@ test('retains client handouts, prior actions, diary dates and reusable meals', a
       id: 'a', firstName: 'Synthetic Alice', code: 'TEST-A', dob: '2024-01-01',
       sex: 'F', feeding: 'na', context: '', createdAt: 1, updatedAt: 1,
       goals: [{ id: 'goal1', text: 'Discuss snacks at follow-up', due: '', done: false, outcome: '' }],
+      resources: [{ id: 's1', title: 'Synthetic handout', category: 'Other handout',
+        url: 'https://docs.google.com/document/d/synthetic-handout/edit', text: 'Sample imported handout text.' }],
     }]))
     localStorage.setItem('mealtrace:meta', JSON.stringify([{
       id: 'settings', savedMeals: [{ id: 'meal1', name: 'Test breakfast', items: [{
@@ -159,7 +161,9 @@ test('retains client handouts, prior actions, diary dates and reusable meals', a
   await page.reload()
   await page.getByText('Previously recorded actions', { exact: true }).click()
   await expect(page.getByText('Discuss snacks at follow-up')).toBeVisible()
-  await page.getByText('Files and handouts', { exact: true }).click()
+  await page.getByText(/^Files and handouts/).click()
+  await page.getByText('Read in Mealtrace', { exact: true }).click()
+  await expect(page.getByText('Sample imported handout text.')).toBeVisible()
   await page.getByLabel('Title', { exact: true }).fill('Synthetic food diary')
   await page.getByLabel('Google Drive link').fill('https://drive.google.com/file/d/synthetic-example/view')
   await page.getByRole('button', {name: 'Add link'}).click()
