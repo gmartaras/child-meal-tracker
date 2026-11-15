@@ -5,7 +5,7 @@
  */
 import firebaseConfig from '../../firebase.config.json'
 import { decodeClientPlan, encodeClientPlan } from './clientPlanStorage'
-import type { Client } from '../domain/types'
+import type { Assessment, Client } from '../domain/types'
 
 export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta' | 'audit'
 export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta', 'audit']
@@ -148,9 +148,18 @@ async function cloudBackend(): Promise<Backend> {
         { includeMetadataChanges: true },
         (snap) => cb(snap.docs.map((d) => {
           const data = d.data()
-          return coll === 'clients' && data.plan
-            ? { ...data, plan: decodeClientPlan(data.plan), id: d.id }
-            : { ...data, id: d.id }
+          if (coll === 'clients' && data.plan) {
+            return { ...data, plan: decodeClientPlan(data.plan), id: d.id }
+          }
+          if (coll === 'assessments' && data.snapshot?.client?.plan) {
+            const { snapshot } = data
+            return {
+              ...data,
+              snapshot: { ...snapshot, client: { ...snapshot.client, plan: decodeClientPlan(snapshot.client.plan) } },
+              id: d.id,
+            }
+          }
+          return { ...data, id: d.id }
         }), snap.metadata.fromCache || snap.metadata.hasPendingWrites),
         (e) => onError(e),
       )
@@ -163,7 +172,17 @@ async function cloudBackend(): Promise<Backend> {
         if (current.exists() && current.data().state === 'finalised') throw new Error('Finalised record is immutable')
         if (current.exists() && expected !== undefined && current.data().updatedAt !== expected) throw new Error('Record changed elsewhere. Reload before retrying.')
         const plan = coll === 'clients' ? (doc as Client).plan : undefined
-        tx.set(ref, plan ? { ...doc, plan: encodeClientPlan(plan) } : doc)
+        const snapshot = coll === 'assessments' ? (doc as Assessment).snapshot : undefined
+        if (plan) {
+          tx.set(ref, { ...doc, plan: encodeClientPlan(plan) })
+        } else if (snapshot?.client.plan) {
+          tx.set(ref, {
+            ...doc,
+            snapshot: { ...snapshot, client: { ...snapshot.client, plan: encodeClientPlan(snapshot.client.plan) } },
+          })
+        } else {
+          tx.set(ref, doc)
+        }
       })
     },
     async saveContext(id, value, previous) {

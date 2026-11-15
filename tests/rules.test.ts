@@ -40,4 +40,10 @@ run('round-trips the sample meal plan through Firestore', async () => {
   const saved = (await getDoc(client)).data()!
   expect(decodeClientPlan(saved.plan)).toEqual(plan)
   expect(decodeClientPlan(plan)).toEqual(plan)
+  const assessment = doc(db, 'users/dietitian/assessments/meal-plan-snapshot')
+  await assertSucceeds(setDoc(assessment, {
+    id: assessment.id, state: 'finalised', snapshot: {client: {id: client.id, plan: saved.plan}},
+  }))
+  const frozen = (await getDoc(assessment)).data()!
+  expect(decodeClientPlan(frozen.snapshot.client.plan)).toEqual(plan)
 })
