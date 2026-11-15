@@ -9,6 +9,10 @@ service cloud.firestore {
     function operationalCollection(collection) {
       return collection in ['clients', 'sessions', 'foods', 'meta'];
     }
+    function clientDeletedTogether(uid, clientId) {
+      let client = /databases/$(database)/documents/users/$(uid)/clients/$(clientId);
+      return exists(client) && !existsAfter(client);
+    }
     match /users/{uid}/{collection}/{recordId} {
       allow read: if authorised(uid) && (operationalCollection(collection) || collection == 'assessments');
       allow create: if authorised(uid) && (operationalCollection(collection) || collection == 'assessments')
@@ -16,7 +20,9 @@ service cloud.firestore {
       allow update: if authorised(uid) && request.resource.data.id == recordId
         && (operationalCollection(collection) || (collection == 'assessments' && resource.data.get('state', '') != 'finalised'));
       allow delete: if authorised(uid)
-        && (operationalCollection(collection) || (collection == 'assessments' && resource.data.get('state', '') != 'finalised'));
+        && (operationalCollection(collection) || (collection == 'assessments'
+          && (resource.data.get('state', '') != 'finalised'
+            || clientDeletedTogether(uid, resource.data.clientId))));
     }
   }
 }

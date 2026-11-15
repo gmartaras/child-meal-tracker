@@ -255,3 +255,24 @@ test('keeps an incomplete client profile usable for a draft and blocks finalisin
   await expect(page.getByRole('button',{name:'Finalise',exact:true})).toBeDisabled()
   await expect(page.getByText('Add the date of birth and sex in the client record before finalising.')).toBeVisible()
 })
+
+test('deletes a client and their finalised history after confirmation', async ({ page }) => {
+  await page.goto('/?demo=1')
+  await page.evaluate(() => {
+    localStorage.setItem('mealtrace:clients', JSON.stringify([{id:'erase', firstName:'TEST-ID', code:'TEST-ID',
+      dob:'', sex:'', feeding:'na', context:'', createdAt:1, updatedAt:1}]))
+    localStorage.setItem('mealtrace:assessments', JSON.stringify([{id:'history', clientId:'erase', title:'Sample history',
+      state:'finalised', type:'diary', date:'2026-11-15', days:[], updatedAt:1, createdAt:1}]))
+    localStorage.setItem('mealtrace:sessions', JSON.stringify([{id:'session', clientId:'erase', date:'2026-11-15',
+      note:'Synthetic note', updatedAt:1, createdAt:1}]))
+  })
+  await page.goto('/?demo=1#/c/erase')
+  await page.reload()
+  await page.getByRole('button',{name:'More actions'}).click()
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByText('Delete client and all data',{exact:true}).click()
+  await expect(page).toHaveURL(/#?\/$/)
+  const counts = await page.evaluate(() => ['clients','assessments','sessions'].map(c =>
+    JSON.parse(localStorage.getItem('mealtrace:'+c) ?? '[]').length))
+  expect(counts).toEqual([0,0,0])
+})

@@ -335,7 +335,14 @@ export default function ClientPage() {
     { icon: 'download', label: 'Export to Excel', fn: () => (logAudit('export', `${client.code} to Excel`), exportClientExcel(client, assessments, sessions, settings)) },
     { icon: 'download', label: 'Export full record (data request)', fn: () => (logAudit('export', `${client.code} full record`), exportClientJson(client, assessments, sessions)) },
     { icon: 'users', label: client.archived ? 'Restore from archive' : 'Archive client', fn: () => void patchClient(client.id, { archived: !client.archived }) },
-    { icon: 'trash', label: 'Delete client and all data', danger: true, fn: () => confirmDialog(`Permanently delete ${client.firstName} (${client.code}) with all food histories, sessions and notes? This cannot be undone.`) && (logAudit('erase', client.code), deleteClient(client.id), nav('/')) },
+    { icon: 'trash', label: 'Delete client and all data', danger: true, fn: async () => {
+      const label = client.firstName === client.code ? client.code : `${client.firstName} (${client.code})`
+      if (!confirmDialog(`Permanently delete ${label} with all food histories, sessions and notes? This cannot be undone.`)) return
+      if (await deleteClient(client.id)) {
+        logAudit('erase', client.code)
+        nav('/')
+      }
+    } },
   ]
 
   return (

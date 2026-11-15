@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, expect, it } from 'vitest'
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
-import { doc,setDoc,getDoc,deleteDoc } from 'firebase/firestore'
+import { doc,setDoc,getDoc,deleteDoc,writeBatch } from 'firebase/firestore'
 import { readFileSync } from 'node:fs'
 import { decodeClientPlan, encodeClientPlan } from '../src/store/clientPlanStorage'
 let env: RulesTestEnvironment
@@ -25,6 +25,23 @@ run('restricts accounts, namespaces and finalised mutations',async()=>{
  await assertFails(setDoc(doc(owner,'users/dietitian/unknown/test'),{id:'test'}))
  await assertFails(setDoc(doc(owner,'users/dietitian/clients/test/subcollection/record'),{id:'record'}))
  await assertFails(setDoc(doc(owner,'users/dietitian/clients/test'),{id:'different'}))
+})
+
+run('permits finalised history deletion only with its own client in the same commit', async () => {
+  const db = env.authenticatedContext('dietitian', {email:'practitioner@example.invalid', email_verified:true}).firestore()
+  const client = doc(db, 'users/dietitian/clients/erase')
+  const history = doc(db, 'users/dietitian/assessments/erase')
+  const session = doc(db, 'users/dietitian/sessions/erase')
+  const unrelated = doc(db, 'users/dietitian/clients/keep')
+  await setDoc(client, {id:client.id})
+  await setDoc(unrelated, {id:unrelated.id})
+  await setDoc(history, {id:history.id,clientId:client.id,state:'finalised'})
+  await setDoc(session, {id:session.id,clientId:client.id})
+  await assertFails(deleteDoc(history))
+  await assertFails(writeBatch(db).delete(unrelated).delete(history).commit())
+  await assertSucceeds(writeBatch(db).delete(client).delete(history).delete(session).commit())
+  for (const ref of [client, history, session]) expect((await getDoc(ref)).exists()).toBe(false)
+  expect((await getDoc(unrelated)).exists()).toBe(true)
 })
 
 run('round-trips the sample meal plan through Firestore', async () => {

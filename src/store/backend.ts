@@ -33,6 +33,7 @@ export interface Backend {
   put(coll: Coll, doc: Doc, expected?: number): Promise<void>
   saveContext(id: string, value: string, previous: string): Promise<void>
   remove(coll: Coll, id: string): Promise<void>
+  removeClient(id: string): Promise<void>
 }
 
 const cfg = firebaseConfig as Record<string, string>
@@ -95,6 +96,15 @@ function localBackend(): Backend {
       if (readLocal(coll).find(d => d.id === id)?.state === "finalised") throw new Error("Finalised record is immutable")
       localStorage.setItem(KEY(coll), JSON.stringify(readLocal(coll).filter((d) => d.id !== id)))
       emit(coll)
+    },
+    async removeClient(id) {
+      const linked = ['sessions', 'assessments'] as const
+      for (const coll of linked) {
+        const remaining = (readLocal(coll) as (Doc & { clientId?: string })[]).filter(d => d.clientId !== id)
+        localStorage.setItem(KEY(coll), JSON.stringify(remaining))
+      }
+      localStorage.setItem(KEY('clients'), JSON.stringify(readLocal('clients').filter(d => d.id !== id)))
+      for (const coll of [...linked, 'clients'] as const) emit(coll)
     },
   }
 }
@@ -171,6 +181,12 @@ async function cloudBackend(): Promise<Backend> {
         const current = await tx.get(ref)
         if (current.exists() && current.data().state === 'finalised') throw new Error('Finalised record is immutable')
         if (current.exists() && expected !== undefined && current.data().updatedAt !== expected) throw new Error('Record changed elsewhere. Reload before retrying.')
+        if (!current.exists() && (coll === 'sessions' || coll === 'assessments')) {
+          const parent = fs.doc(path('clients'), (doc as Doc & {clientId: string}).clientId)
+          if (!(await tx.get(parent)).exists()) throw new Error('This client record no longer exists.')
+          // A new linked record invalidates a concurrent client deletion's read of its parent.
+          tx.update(parent, { relatedRecordsRevision: fs.increment(1) })
+        }
         const plan = coll === 'clients' ? (doc as Client).plan : undefined
         const snapshot = coll === 'assessments' ? (doc as Assessment).snapshot : undefined
         if (plan) {
@@ -198,6 +214,19 @@ async function cloudBackend(): Promise<Backend> {
     },
     async remove(coll, id) {
       await fs.deleteDoc(fs.doc(path(coll), id))
+    },
+    async removeClient(id) {
+      const client = fs.doc(path('clients'), id)
+      await fs.runTransaction(db, async tx => {
+        if (!(await tx.get(client)).exists()) return
+        const related = await Promise.all((['sessions', 'assessments'] as const).map(coll =>
+          fs.getDocsFromServer(fs.query(path(coll), fs.where('clientId', '==', id))),
+        ))
+        const records = related.flatMap(result => result.docs)
+        if (records.length >= 500) throw new Error('This client has too many linked records for one delete. Contact your system administrator for help removing the full record.')
+        for (const record of records) tx.delete(record.ref)
+        tx.delete(client)
+      })
     },
   }
 }

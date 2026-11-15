@@ -67,7 +67,7 @@ interface State {
   patchClient(id: string, patch: Partial<Client> | ((latest: Client) => Partial<Client>)): Promise<boolean>
   saveContext(id: string, value: string, previous: string): Promise<void>
   saveResources(client: Client, resources: NonNullable<Client["resources"]>): Promise<boolean>
-  deleteClient(id: string): void
+  deleteClient(id: string): Promise<boolean>
   saveSession(s: Partial<Session> & { clientId: string; date: string }): Promise<boolean>
   deleteSession(id: string): void
   saveAssessment(a: Assessment): Promise<boolean>
@@ -258,11 +258,19 @@ export const useStore = create<State>((set, get) => {
         set({ pendingWrites: get().pendingWrites - 1 })
       }
     },
-    deleteClient(id) {
-      if (get().assessments.some(a => a.clientId === id && a.state === "finalised")) { fail(new Error("This client has finalised records. Archive the client instead.")); return }
-      for (const a of get().assessments.filter((x) => x.clientId === id)) del('assessments', a.id)
-      for (const s of get().sessions.filter((x) => x.clientId === id)) del('sessions', s.id)
-      del('clients', id)
+    async deleteClient(id) {
+      set({ pendingWrites: get().pendingWrites + 1 })
+      try {
+        if (!backend) throw new Error('Storage not ready')
+        await clientQueue.get(id)
+        await backend.removeClient(id)
+        return true
+      } catch (e) {
+        fail(e)
+        return false
+      } finally {
+        set({ pendingWrites: get().pendingWrites - 1 })
+      }
     },
     async saveSession(sess) {
       const now = Date.now()
