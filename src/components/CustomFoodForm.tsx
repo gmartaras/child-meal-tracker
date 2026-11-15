@@ -18,9 +18,10 @@ export function CustomFoodForm({ initial, onClose, onSaved }: { initial?: Partia
   const [brand, setBrand] = useState(initial?.brand ?? '')
   const [kind, setKind] = useState<FoodKind>(initial?.kind ?? 'food')
   const [unit, setUnit] = useState(initial?.unit ?? 'g')
-  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(initial?.values ?? {}).map(([k, v]) => [k, String(v)])))
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(initial?.values ?? {}).map(([k, v]) => [k, v === null ? "" : String(v)])))
   const [measures, setMeasures] = useState<Measure[]>(initial?.measures ?? [])
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [infantFormula, setInfantFormula] = useState(initial?.infantFormula ?? false)
   const [showAll, setShowAll] = useState(false)
 
   const isSupp = kind === 'supplement'
@@ -34,26 +35,33 @@ export function CustomFoodForm({ initial, onClose, onSaved }: { initial?: Partia
   const filled = new Set(Object.keys(values).filter((k) => values[k] !== ''))
   const visible = NUTRIENTS.filter((n) => showAll || panel.includes(n.id) || filled.has(n.id) || (isSupp ? false : n.id === 'sodium'))
 
-  const save = () => {
-    const vals: Record<string, number> = {}
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    const vals: CustomFood["values"] = {}
     for (const [k, v] of Object.entries(values)) {
-      const x = parseFloat(v.replace(',', '.'))
+      if (v === 'T' || v === 'N') { vals[k] = v; continue }
+      const x = Number(v.replace(',', '.'))
       if (v.trim() !== '' && isFinite(x) && x >= 0) vals[k] = x
     }
     // salt and sodium describe the same thing: keep one source of truth
-    if (vals.salt != null && vals.sodium == null) vals.sodium = (vals.salt * 1000) / 2.5
+    if (typeof vals.salt === "number" && vals.sodium == null) vals.sodium = (vals.salt * 1000) / 2.5
     delete vals.salt
-    const doc = saveFood({
+    setSaving(true)
+    const doc = await saveFood({
+      sourceFoodId: initial?.sourceFoodId,
       id: initial?.id,
       name: name.trim(),
       brand: brand.trim() || undefined,
       kind,
+      infantFormula: kind === 'formula' && infantFormula,
       per: isSupp ? 1 : 100,
       unit: isSupp ? unit.trim() || 'dose' : unit,
       values: vals,
       measures: measures.filter((m) => m.label.trim() && m.amount > 0),
       notes: notes.trim() || undefined,
     })
+    setSaving(false)
+    if (!doc) return
     onSaved?.(doc)
     onClose()
   }
@@ -61,15 +69,16 @@ export function CustomFoodForm({ initial, onClose, onSaved }: { initial?: Partia
   return (
     <Modal
       wide
-      title={initial?.id ? 'Edit food' : 'New food'}
+      title={initial?.id ? 'Edit food' : initial?.sourceFoodId ? 'Create a CoFID food variant' : 'New food'}
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!name.trim()} onClick={save}>Save food</Button>
+          <Button variant="primary" disabled={!name.trim() || saving} onClick={save}>{saving ? "Saving…" : "Save food"}</Button>
         </>
       }
     >
+      {kind === "formula" && <label className="mb-3 flex gap-2"><input type="checkbox" checked={infantFormula} onChange={e => setInfantFormula(e.target.checked)} />Verified infant formula, values for prepared milk (used for supplementation reminder)</label>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Organic carrot puffs" /></Field>
         <Field label="Brand (optional)"><Input value={brand} onChange={(e) => setBrand(e.target.value)} /></Field>

@@ -42,15 +42,6 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
   const { targets, ageMonths, panel } = ctx
   const shown = panel.filter((id) => targets[id])
 
-  // --- energy
-  const e = targets.energy
-  if (e) {
-    const p = pct(r.avg.energy.v, e.value)
-    const st = statusOf(r.avg.energy.v, e)
-    if (st === 'below') out.push({ severity: p < 75 ? 'critical' : 'warning', nutrient: 'energy', title: `Energy intake is ${p}% of the estimated average requirement`, detail: `${fmtNutrient('energy', r.avg.energy.v)} kcal/day against an EAR of ${e.value} kcal. Interpret alongside growth: the EAR is a population average, not an individual requirement.` })
-    else if (st === 'above') out.push({ severity: 'warning', nutrient: 'energy', title: `Energy intake is ${p}% of the estimated average requirement`, detail: `${fmtNutrient('energy', r.avg.energy.v)} kcal/day against an EAR of ${e.value} kcal. Interpret alongside growth.` })
-  }
-
   // --- nutrients below LRNI / RNI
   const low: string[] = []
   const below: string[] = []
@@ -59,7 +50,7 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
     if (id === 'energy' || id === 'salt') continue
     const t = targets[id]
     const tot = r.avg[id]
-    const st = statusOf(tot.v, t)
+    const st = statusOf(tot, t)
     if (st === 'low') low.push(id)
     else if (st === 'below') below.push(id)
     else if (st === 'met') met.push(id)
@@ -101,7 +92,7 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
   // --- vitamin D supplementation (UK advice: breastfed babies from birth, all children 1–4 years)
   if (ageMonths < 60) {
     const suppD = r.avg.vitd.supp
-    const formulaEnough = r.milkMl >= 500 && ageMonths < 12 && (r.sources.vitd ?? []).some((s) => s.kind === 'formula')
+    const formulaEnough = r.formulaMl >= 500 && ageMonths < 12
     if (!(suppD > 0) && !formulaEnough) {
       out.push({
         severity: 'info',
@@ -117,7 +108,7 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
     const iron = targets.iron ? r.avg.iron.v / targets.iron.value : 1
     const milkEnergy = (r.sources.energy ?? []).filter((s) => /\bmilk\b/i.test(s.name) || s.kind === 'formula').reduce((a, s) => a + s.value, 0)
     const share = r.avg.energy.v > 0 ? (milkEnergy / r.avg.energy.v) * 100 : 0
-    if (r.milkMl >= 500 && iron < 1) {
+    if (r.milkMl >= 500 && iron < 1 && !r.avg.iron.missing.length) {
       out.push({
         severity: 'warning',
         nutrient: 'iron',
@@ -161,7 +152,7 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
     for (const id of shown) {
       const tNow = targets[id]
       const tPrev = ctx.previous.targets[id]
-      if (!tNow || !tPrev) continue
+      if (id === "energy" || r.avg[id].lowEst || ctx.previous.result.avg[id].lowEst || !tNow || !tPrev || r.avg[id].missing.length || ctx.previous.result.avg[id].missing.length) continue
       const now = (r.avg[id].v / tNow.value) * 100
       const prev = (ctx.previous.result.avg[id].v / tPrev.value) * 100
       const d = now - prev
@@ -180,7 +171,7 @@ export function buildInsights(r: AssessmentResult, ctx: InsightContext): Insight
     if (worse.length) out.push({ severity: 'warning', title: 'Moved away from target since the previous assessment', detail: worse.join(', ') + ' (% of target).' })
   }
 
-  if (met.length && !low.length && !below.length) {
+  if (met.length === shown.filter(id => id !== "energy" && id !== "salt").length && met.length && !low.length && !below.length) {
     out.unshift({ severity: 'good', title: 'All tracked nutrients with a reference value meet their targets' })
   }
 

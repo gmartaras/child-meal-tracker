@@ -5,6 +5,8 @@ export type FoodKind = 'food' | 'formula' | 'supplement'
 
 /** A food the calculator can use, whatever its source. */
 export interface Food {
+  sourceFoodId?: string
+  infantFormula?: boolean
   id: string // "c:<CoFID code>" or "u:<custom id>"
   name: string
   kind: FoodKind
@@ -20,6 +22,9 @@ export interface Food {
 
 /** Custom food as stored in the database. */
 export interface CustomFood {
+  sourceFoodId?: string
+  recipe?: { items: Item[]; yieldGrams: number; servings: number }
+  infantFormula?: boolean
   id: string
   name: string
   brand?: string
@@ -27,7 +32,7 @@ export interface CustomFood {
   per: number
   unit: string
   /** only nutrients the user actually knows; anything absent is treated as "no data" */
-  values: Record<string, number>
+  values: Record<string, RawVal>
   measures?: Measure[]
   notes?: string
   updatedAt: number
@@ -58,16 +63,20 @@ export interface Item {
   freq?: Freq
   estimate?: boolean // e.g. breast-milk volume estimated from feeds
   /** frozen copy of a custom food at the time it was logged, so later edits do not rewrite history */
-  snap?: { kind: FoodKind; per: number; values: Record<string, number> }
+  snap?: { sourceFoodId?: string; infantFormula?: boolean; kind: FoodKind; per: number; values: Record<string, RawVal> }
 }
 
 export interface Meal {
+  familyNotes?: string
   id: string
   name: string
   items: Item[]
 }
 
 export interface Day {
+  diaryDate?: string
+  complete?: boolean
+  excluded?: boolean
   id: string
   label: string
   meals: Meal[]
@@ -76,6 +85,11 @@ export interface Day {
 export type AssessmentType = 'diary' | 'typical' | 'ffq'
 
 export interface Assessment {
+  state?: "draft" | "reviewed" | "finalised"
+  amendmentOf?: string
+  unquantifiedBreastMilk?: boolean
+  scenarioOf?: string
+  snapshot?: { analysis: import("./analysis").Analysis; client: Client; settings: Settings; finalisedAt: string; calculatorVersion: string }
   id: string
   clientId: string
   date: string // yyyy-mm-dd
@@ -90,6 +104,8 @@ export interface Assessment {
 }
 
 export interface Client {
+  resources?: {id: string; category: string; title: string; url: string}[]
+  goals?: { id: string; text: string; due: string; done: boolean; outcome: string }[]
   id: string
   code: string
   firstName: string
@@ -116,6 +132,7 @@ export interface Session {
 }
 
 export interface BreastMilkSettings {
+  estimatesApproved?: boolean
   /** ml per feed for infants younger than `olderFromMonths` */
   perFeedYounger: number
   /** ml per feed from `olderFromMonths` onwards */
@@ -129,6 +146,7 @@ export interface BreastMilkSettings {
 }
 
 export interface Settings {
+  savedMeals?: {id: string; name: string; items: Item[]}[]
   id: 'settings'
   practiceName: string
   practitioner: string

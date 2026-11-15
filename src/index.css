@@ -3,21 +3,21 @@
 /* Semantic tokens. Chart colours are a validated colour-blind-safe set; do not swap ad hoc. */
 :root {
   color-scheme: light;
-  --bg: #f6f5f2;
-  --surface: #fcfcfb;
-  --surface-2: #f0efeb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --muted: #898781;
-  --line: #e1e0d9;
-  --line-strong: #c3c2b7;
-  --accent: #2a78d6;
-  --accent-ink: #1c5cab;
-  --accent-wash: #e6f0fc;
+  --bg: #f7f8fc;
+  --surface: #ffffff;
+  --surface-2: #eff1f7;
+  --ink: #17192a;
+  --ink-2: #50566d;
+  --muted: #606780;
+  --line: #e0e3ee;
+  --line-strong: #c2c7dc;
+  --accent: #4d46d6;
+  --accent-ink: #4138bc;
+  --accent-wash: #eeecff;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
-  --track: #e6e5df;
+  --track: #e8eaf2;
   --good: #0ca30c;
   --good-ink: #006300;
   --warning: #fab219;
@@ -27,27 +27,29 @@
   --good-wash: #e7f6e7;
   --warning-wash: #fdf2d6;
   --critical-wash: #fbe9e9;
-  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.06);
+  --shadow: 0 8px 28px #20254713, 0 1px 3px #20254714;
+  --button-ink: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.print-light) {
     color-scheme: dark;
-    --bg: #0d0d0d;
-    --surface: #1a1a19;
-    --surface-2: #242423;
-    --ink: #f0efec;
-    --ink-2: #c3c2b7;
-    --muted: #898781;
-    --line: #2c2c2a;
-    --line-strong: #383835;
-    --accent: #3987e5;
-    --accent-ink: #86b6ef;
-    --accent-wash: #16263a;
+    --bg: #141622;
+    --surface: #1b1e2c;
+    --surface-2: #232638;
+    --ink: #f2f3fa;
+    --ink-2: #c2c7dc;
+    --muted: #a1a9c1;
+    --button-ink: #181632;
+    --line: #303447;
+    --line-strong: #3f455c;
+    --accent: #a6a2ff;
+    --accent-ink: #bdb9ff;
+    --accent-wash: #2a2851;
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
-    --track: #2c2c2a;
+    --track: #303447;
     --good: #0ca30c;
     --good-ink: #5fce5f;
     --warning: #fab219;
@@ -86,7 +88,7 @@
   --color-critical: var(--critical);
   --color-critical-ink: var(--critical-ink);
   --color-critical-wash: var(--critical-wash);
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --shadow-card: var(--shadow);
 }
 
@@ -138,6 +140,42 @@ summary {
   scrollbar-color: var(--line-strong) transparent;
 }
 
+/* Shared workspace surfaces */
+.app-main { scroll-behavior: smooth; }
+.app-rail { background: var(--surface); }
+.app-topbar { background: var(--surface); }
+.app-page { width: 100%; margin-inline: auto; max-width: 82rem; padding: 1.75rem 1.5rem 3rem; }
+@media (min-width: 1024px) { .app-page { padding-inline: 2.5rem; padding-top: 2.25rem; } }
+@media (max-width: 479px) { .app-page { padding: 1.15rem 1rem 2rem; } }
+.workspace-hero {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(115deg, var(--surface) 45%, var(--accent-wash));
+}
+.workspace-hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 0 auto;
+  width: min(47%, 27rem);
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 27%, transparent) 1px, transparent 1.5px);
+  border-radius: inherit;
+  pointer-events: none;
+  background-size: 17px 17px;
+  mask-image: linear-gradient(110deg, transparent 5%, #000 82%);
+}
+.workspace-hero h1, .page-title { letter-spacing: -.035em; }
+.app-button { transition: background-color 150ms, border-color 150ms, color 150ms, transform 150ms; }
+.app-button:not(:disabled):active { transform: translateY(1px); }
+.app-button-primary { background: var(--accent); color: var(--button-ink); }
+.app-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink)); }
+.workspace-row { transition: background-color 150ms, border-color 150ms; }
+.workspace-row:hover { background-color: var(--accent-wash); }
+@media (prefers-reduced-motion: reduce) {
+  .app-main { scroll-behavior: auto; }
+  .app-button, .workspace-row { transition: none; }
+  .app-button:not(:disabled):active { transform: none; }
+}
 /* ---------- print (reports) ---------- */
 @page {
   size: A4;

@@ -1,3 +1,4 @@
+import { validateBackup } from '../domain/backupValidation'
 import { create } from 'zustand'
 import { uid } from '../domain/age'
 import { setCustomFoods } from '../domain/foods'
@@ -19,22 +20,6 @@ export const DEFAULT_SETTINGS: Settings = {
   updatedAt: 0,
 }
 
-/** Editable starting points, created once. Composition as published for the product; check before use. */
-const SEED_FOODS: CustomFood[] = [
-  {
-    id: 'seed-healthy-start',
-    name: 'Healthy Start children’s vitamin drops',
-    kind: 'supplement',
-    per: 1,
-    unit: 'daily dose (5 drops)',
-    values: { vita: 233, vitc: 20, vitd: 10 },
-    notes: 'Daily dose of 5 drops: vitamin A 233 µg, vitamin C 20 mg, vitamin D3 10 µg. Check against the current product label.',
-    updatedAt: 0,
-  },
-  { id: 'seed-vitd-10', name: 'Vitamin D supplement 10 µg', kind: 'supplement', per: 1, unit: 'dose', values: { vitd: 10 }, updatedAt: 0 },
-  { id: 'seed-vitd-8-5', name: 'Vitamin D supplement 8.5 µg', kind: 'supplement', per: 1, unit: 'dose', values: { vitd: 8.5 }, updatedAt: 0 },
-]
-
 export interface Backup {
   app: 'mealtrace'
   version: 1
@@ -52,6 +37,7 @@ interface State {
   user: AuthUser | null
   error: string | null
   synced: boolean
+  pendingWrites: number
   clients: Client[]
   sessions: Session[]
   assessments: Assessment[]
@@ -61,17 +47,19 @@ interface State {
   signIn(): Promise<void>
   signOut(): Promise<void>
   saveClient(c: Partial<Client> & { firstName: string; dob: string }): Client
+  saveContext(id: string, value: string, previous: string): Promise<void>
+  saveResources(client: Client, resources: NonNullable<Client["resources"]>): Promise<boolean>
   deleteClient(id: string): void
-  saveSession(s: Partial<Session> & { clientId: string; date: string }): Session
+  saveSession(s: Partial<Session> & { clientId: string; date: string }): Promise<boolean>
   deleteSession(id: string): void
-  saveAssessment(a: Assessment): void
+  saveAssessment(a: Assessment): Promise<boolean>
   deleteAssessment(id: string): void
-  saveFood(f: Partial<CustomFood> & { name: string }): CustomFood
+  saveFood(f: Partial<CustomFood> & { name: string }): Promise<CustomFood | null>
   deleteFood(id: string): void
   updateSettings(patch: Partial<Settings>): void
   touchRecent(foodId: string): void
   exportBackup(): Backup
-  importBackup(b: Backup): number
+  importBackup(b: Backup): Promise<number>
   clearError(): void
 }
 
@@ -81,11 +69,17 @@ let unsubs: (() => void)[] = []
 export const useStore = create<State>((set, get) => {
   const fail = (e: unknown) => {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error(e)
+    console.error('Storage operation failed')
     set({ error: /permission|insufficient/i.test(msg) ? 'Cloud storage refused the request. Check that you are signed in with the authorised Google account.' : msg })
   }
-  const put = <T extends Doc>(coll: Coll, doc: T) => {
-    backend?.put(coll, doc).catch(fail)
+  const put = async <T extends Doc>(coll: Coll, doc: T, expected?: number): Promise<boolean> => {
+    set({ pendingWrites: get().pendingWrites + 1 })
+    try {
+      if (!backend) throw new Error('Storage not ready')
+      await backend.put(coll, doc, expected)
+      return true
+    } catch (e) { fail(e); return false }
+    finally { set({ pendingWrites: get().pendingWrites - 1 }) }
   }
   const del = (coll: Coll, id: string) => {
     backend?.remove(coll, id).catch(fail)
@@ -101,8 +95,7 @@ export const useStore = create<State>((set, get) => {
       set({ synced: confirmed.size === COLLS.length })
       // create the starter supplements once the server has confirmed there are no settings yet
       if (confirmed.has('meta') && confirmed.has('foods') && !get().settings.seeded) {
-        const existing = new Set(get().foods.map((f) => f.id))
-        for (const f of SEED_FOODS) if (!existing.has(f.id)) put('foods', { ...f, updatedAt: Date.now() })
+        // No automatic unverified product seeding. Add products from checked labels.
         get().updateSettings({ seeded: true })
       }
     }
@@ -123,6 +116,7 @@ export const useStore = create<State>((set, get) => {
             }
             loaded.add(coll)
             if (!fromCache) confirmed.add(coll)
+            else confirmed.delete(coll)
             maybeReady()
           },
           fail,
@@ -137,6 +131,7 @@ export const useStore = create<State>((set, get) => {
     user: null,
     error: null,
     synced: false,
+    pendingWrites: 0,
     clients: [],
     sessions: [],
     assessments: [],
@@ -172,6 +167,7 @@ export const useStore = create<State>((set, get) => {
       }
     },
     async signOut() {
+      if (get().pendingWrites || get().error) {fail(new Error("Resolve pending or failed saves before signing out.")); return}
       await backend?.signOut()
     },
 
@@ -195,35 +191,54 @@ export const useStore = create<State>((set, get) => {
         code,
         updatedAt: now,
       }
-      put('clients', doc)
+      void put('clients', doc, existing?.updatedAt)
       return doc
     },
+    async saveResources(client, resources) {
+      const doc = {...client, resources, updatedAt: Math.max(Date.now(), client.updatedAt + 1)}
+      return put("clients", doc, client.updatedAt)
+    },
+    async saveContext(id, value, previous) {
+      set({ pendingWrites: get().pendingWrites + 1 })
+      try {
+        if (!backend) throw new Error('Storage is not ready. Try again shortly.')
+        await backend.saveContext(id, value, previous)
+      } finally {
+        set({ pendingWrites: get().pendingWrites - 1 })
+      }
+    },
     deleteClient(id) {
+      if (get().assessments.some(a => a.clientId === id && a.state === "finalised")) { fail(new Error("This client has finalised records. Archive the client instead.")); return }
       for (const a of get().assessments.filter((x) => x.clientId === id)) del('assessments', a.id)
       for (const s of get().sessions.filter((x) => x.clientId === id)) del('sessions', s.id)
       del('clients', id)
     },
-    saveSession(sess) {
+    async saveSession(sess) {
       const now = Date.now()
       const existing = sess.id ? get().sessions.find((x) => x.id === sess.id) : undefined
       const doc: Session = { note: '', createdAt: now, ...existing, ...sess, id: sess.id ?? uid(), updatedAt: now }
-      put('sessions', doc)
-      return doc
+      return put('sessions', doc, existing?.updatedAt)
     },
     deleteSession(id) {
       del('sessions', id)
     },
-    saveAssessment(a) {
-      put('assessments', { ...a, updatedAt: Date.now() })
+    async saveAssessment(a) {
+      if (get().assessments.find(x => x.id === a.id)?.state === 'finalised') {
+        fail(new Error('Finalised assessments are immutable. Create an amendment.'))
+        return false
+      }
+      const stamp = Math.max(Date.now(), a.updatedAt + 1)
+      const ok = await put('assessments', { ...a, updatedAt: stamp }, get().assessments.some(x => x.id === a.id) ? a.updatedAt : undefined)
+      if (ok) a.updatedAt = stamp
+      return ok
     },
     deleteAssessment(id) {
       del('assessments', id)
     },
-    saveFood(f) {
+    async saveFood(f) {
       const existing = f.id ? get().foods.find((x) => x.id === f.id) : undefined
       const doc: CustomFood = { kind: 'food', per: 100, unit: 'g', values: {}, ...existing, ...f, id: f.id ?? uid(), updatedAt: Date.now() }
-      put('foods', doc)
-      return doc
+      return await put('foods', doc, existing?.updatedAt) ? doc : null
     },
     deleteFood(id) {
       del('foods', id)
@@ -241,14 +256,26 @@ export const useStore = create<State>((set, get) => {
       const { clients, sessions, assessments, foods, settings } = get()
       return { app: 'mealtrace', version: 1, exportedAt: new Date().toISOString(), clients, sessions, assessments, foods, settings }
     },
-    importBackup(b) {
+    async importBackup(b) {
+      validateBackup(b)
       if (b?.app !== 'mealtrace' || !Array.isArray(b.clients)) throw new Error('This file is not a Mealtrace backup.')
+      if (b.version !== 1) throw new Error('Unsupported backup version')
+      const groups = [['clients', b.clients], ['sessions', b.sessions], ['assessments', b.assessments], ['foods', b.foods]] as const
+      for (const [coll, records] of groups) {
+        if (!Array.isArray(records)) throw new Error(`Invalid ${coll} collection`)
+        const ids = new Set<string>()
+        for (const row of records) {
+          if (!row || typeof row.id !== 'string' || !row.id || row.id.includes('/') || ids.has(row.id)) throw new Error(`Invalid or duplicate ID in ${coll}`)
+          ids.add(row.id)
+          if (coll === 'assessments' && !Array.isArray((row as Assessment).days)) throw new Error('Invalid assessment')
+        }
+      }
       let n = 0
-      for (const c of b.clients) (put('clients', c), n++)
-      for (const s of b.sessions ?? []) (put('sessions', s), n++)
-      for (const a of b.assessments ?? []) (put('assessments', a), n++)
-      for (const f of b.foods ?? []) (put('foods', f), n++)
-      if (b.settings) put('meta', { ...b.settings, id: 'settings', lastBackupAt: get().settings.lastBackupAt })
+      for (const [coll, records] of groups) for (const row of records) {
+        if (!await put(coll, row)) throw new Error(`Restore stopped after ${n} records. Review errors before retrying.`)
+        n++
+      }
+      if (b.settings && !await put('meta', { ...b.settings, id: 'settings' })) throw new Error('Records restored but settings failed')
       return n
     },
     clearError() {

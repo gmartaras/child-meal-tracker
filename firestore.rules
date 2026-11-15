@@ -1,17 +1,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in user can only read and write their own records.
-    // Replace YOUR_EMAIL_ADDRESS with the Google account you sign in with, so that
-    // nobody else can store anything in this project even if they find the web address.
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null
-                         && request.auth.uid == uid
-                         && request.auth.token.email == "YOUR_EMAIL_ADDRESS"
-                         && request.auth.token.email_verified == true;
+    function authorised(uid) {
+      return request.auth != null && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['practitioner@example.invalid', 'developer@example.invalid'];
     }
-    match /{document=**} {
-      allow read, write: if false;
+    function operationalCollection(collection) {
+      return collection in ['clients', 'sessions', 'foods', 'meta'];
+    }
+    match /users/{uid}/{collection}/{recordId} {
+      allow read: if authorised(uid) && (operationalCollection(collection) || collection == 'assessments');
+      allow create: if authorised(uid) && (operationalCollection(collection) || collection == 'assessments')
+        && request.resource.data.id == recordId;
+      allow update: if authorised(uid) && request.resource.data.id == recordId
+        && (operationalCollection(collection) || (collection == 'assessments' && resource.data.get('state', '') != 'finalised'));
+      allow delete: if authorised(uid)
+        && (operationalCollection(collection) || (collection == 'assessments' && resource.data.get('state', '') != 'finalised'));
     }
   }
 }

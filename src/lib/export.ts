@@ -28,7 +28,7 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
       summary.push([
         t(a.date), t(a.title), t(TYPE_LABEL[a.type]), t(formatAge(an.ageMonths)), n(an.result.nDays, '0'), t(nu.label), t(nu.unit),
         n(tot.v), n(tot.supp), n(tg?.value), t(tg?.type), n(tg?.lrni), n(tg ? (tot.v / tg.value) * 100 : null, '0'),
-        t(tg ? statusLabel(statusOf(tot.v, tg), tg) : ''), t(tot.missing.join('; ')),
+        t(tg ? statusLabel(statusOf(tot, tg), tg) : ''), t(tot.missing.join('; ')),
       ])
     }
     for (const d of a.days) {
@@ -67,4 +67,15 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
 export function downloadBackup(b: Backup): void {
   const blob = new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' })
   downloadBlob(blob, `mealtrace-backup-${b.exportedAt.slice(0, 10)}.json`)
+}
+
+/** Export a single client for an access request or secure handover. */
+export function exportClientRecord(client: Client, assessments: Assessment[], sessions: Session[]) {
+  const record = {
+    exportedAt: new Date().toISOString(), client,
+    assessments: assessments.filter(a=>a.clientId===client.id),
+    sessions: sessions.filter(s=>s.clientId===client.id),
+  }
+  downloadBlob(new Blob([JSON.stringify(record, null, 2)], {type:'application/json'}),
+    `mealtrace-client-${client.code.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
 }

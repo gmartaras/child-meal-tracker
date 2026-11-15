@@ -152,9 +152,9 @@ export function measuresFor(
     const bm = ctx.bm
     const age = ctx.ageMonths ?? 0
     const feed = breastFeedVolume(age, bm)
-    out.push({ label: `breastfeed (est. ${feed} ml)`, amount: feed * bm.density, estimate: true })
-    out.push({ label: `full day, exclusively breastfed (est. ${bm.exclusiveDay} ml)`, amount: bm.exclusiveDay * bm.density, estimate: true })
-    out.push({ label: `full day, main milk with solids (est. ${bm.mainMilkDay} ml)`, amount: bm.mainMilkDay * bm.density, estimate: true })
+    if (bm.estimatesApproved) out.push({ label: `breastfeed (est. ${feed} ml)`, amount: feed * bm.density, estimate: true })
+    if (bm.estimatesApproved) out.push({ label: `full day, exclusively breastfed (est. ${bm.exclusiveDay} ml)`, amount: bm.exclusiveDay * bm.density, estimate: true })
+    if (bm.estimatesApproved) out.push({ label: `full day, main milk with solids (est. ${bm.mainMilkDay} ml)`, amount: bm.mainMilkDay * bm.density, estimate: true })
     out.push({ label: 'ml (measured / expressed)', amount: bm.density })
     out.push({ label: 'fl oz (28 ml)', amount: 28.4 * bm.density })
     out.push(...(ctx.userMeasures ?? []))
@@ -185,5 +185,7 @@ export function measuresFor(
     }
     if (food.density) out.push({ label: 'ml', amount: food.density })
   }
-  return unique(out)
+  const halves = out.filter(m => m.amount > 1 && m.label !== food.unit && !/^half|^½/i.test(m.label) && !m.estimate)
+    .map(m => ({...m, label: `½ ${m.label}`, amount: m.amount / 2}))
+  return unique([...out, ...halves])
 }

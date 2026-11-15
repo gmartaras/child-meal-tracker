@@ -167,15 +167,20 @@ export function targetsFor(
   return t
 }
 
-export type Status = 'low' | 'below' | 'met' | 'above' | 'none'
+export type Status = 'unknown' | 'low' | 'below' | 'met' | 'above' | 'none'
 
 /** Classify an intake against its target. */
-export function statusOf(value: number, t: Target | undefined): Status {
+export function statusOf(input: number | { v: number; missing: string[]; lowEst?: boolean }, t: Target | undefined): Status {
+  const value = typeof input === "number" ? input : input.v
+  if (t && typeof input !== "number" && (input.missing.length || input.lowEst)) {
+    if (t.type === "Max" && value > t.value) return "above"
+    return "unknown"
+  }
   if (!t) return 'none'
   const pct = value / t.value
   switch (t.type) {
     case 'EAR':
-      return pct < 0.9 ? 'below' : pct > 1.1 ? 'above' : 'met'
+      return 'unknown'
     case 'Max':
       return pct > 1 ? 'above' : 'met'
     default:
@@ -185,6 +190,7 @@ export function statusOf(value: number, t: Target | undefined): Status {
 }
 
 export const STATUS_LABEL: Record<Status, string> = {
+  unknown: 'Insufficient data',
   low: 'Below LRNI',
   below: 'Below target',
   met: 'Meets target',
@@ -193,6 +199,7 @@ export const STATUS_LABEL: Record<Status, string> = {
 }
 
 export function statusLabel(status: Status, t?: Target): string {
+  if (status === "unknown") return "Insufficient data"
   if (t?.type === 'Max') return status === 'above' ? 'Above maximum' : 'Within maximum'
   if (t?.type === 'EAR') return status === 'met' ? 'Close to EAR' : status === 'below' ? 'Below EAR' : 'Above EAR'
   return STATUS_LABEL[status]

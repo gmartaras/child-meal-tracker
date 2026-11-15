@@ -12,9 +12,11 @@ export interface Analysis {
 }
 
 export function analyse(a: Assessment, client: Client, settings: Settings, prev?: Assessment): Analysis {
+  if (a.state === "finalised" && a.snapshot) return a.snapshot.analysis
   const ageMonths = ageInMonths(client.dob, a.date)
   const targets = targetsFor(ageMonths, client.sex, client.feeding, client.targets)
   const result = computeAssessment(a)
+  if (a.unquantifiedBreastMilk) for (const total of Object.values(result.avg)) total.missing.push('Unquantified breast milk')
   const previous = prev
     ? {
         result: computeAssessment(prev),
@@ -29,7 +31,7 @@ export function analyse(a: Assessment, client: Client, settings: Settings, prev?
 /** The assessment immediately before this one for the same client (by date, then creation time). */
 export function previousAssessment(a: Assessment, all: Assessment[]): Assessment | undefined {
   return all
-    .filter((x) => x.clientId === a.clientId && x.id !== a.id && (x.date < a.date || (x.date === a.date && x.createdAt < a.createdAt)))
+    .filter((x) => x.state === "finalised" && !x.scenarioOf && x.clientId === a.clientId && x.id !== a.id && (x.date < a.date || (x.date === a.date && x.createdAt < a.createdAt)))
     .sort((x, y) => (y.date + y.createdAt).localeCompare(x.date + x.createdAt))[0]
 }
 

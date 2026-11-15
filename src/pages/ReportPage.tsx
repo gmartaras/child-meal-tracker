@@ -32,16 +32,19 @@ function PrintMeter({ tot, target }: { tot: Tot; target: Target }) {
   )
 }
 
-const PARENT_WORD: Record<Status, string> = { met: 'On track', below: 'A little low', low: 'Low', above: 'Higher than advised', none: '' }
+const PARENT_WORD: Record<Status, string> = { unknown: 'Insufficient data', met: 'Recorded reference met', below: 'A little low', low: 'Low', above: 'Higher than advised', none: '' }
 
 export default function ReportPage() {
   const { id, aid, kind } = useParams()
-  const client = useStore((s) => s.clients.find((c) => c.id === id))
-  const a = useStore((s) => s.assessments.find((x) => x.id === aid))
+  const liveClient = useStore((s) => s.clients.find((c) => c.id === id))
+  const a = useStore((s) => s.assessments.find((x) => x.id === aid && x.clientId === id))
   const all = useStore((s) => s.assessments)
   const sessions = useStore((s) => s.sessions)
-  const settings = useStore((s) => s.settings)
+  const liveSettings = useStore((s) => s.settings)
+  const client = a?.snapshot?.client ?? liveClient
+  const settings = a?.snapshot?.settings ?? liveSettings
   const saveAssessment = useStore((s) => s.saveAssessment)
+  const [archiveStatus, setArchiveStatus] = useState('')
   const [fullName, setFullName] = useState('')
   const [view, setView] = useState<'parent' | 'clinical'>(kind === 'clinical' ? 'clinical' : 'parent')
   const [advice, setAdvice] = useState(a?.parentNote ?? '')
@@ -63,15 +66,16 @@ export default function ReportPage() {
   const an = useMemo(() => (a && client ? analyse(a, client, settings, prev) : null), [a, client, settings, prev])
   if (!client || !a || !an) return <div className="p-8 text-ink-2">Report not found. <Link className="underline" to="/">Back</Link></div>
 
+  const isDraft = a.state !== "finalised"
   const name = fullName.trim() || client.firstName
   const { result, targets, ageMonths } = an
   const shown = NUTRIENTS.filter((n) => settings.panel.includes(n.id))
   const withTarget = shown.filter((n) => targets[n.id])
-  const status = (nid: string) => statusOf(result.avg[nid].v, targets[nid])
-  const session = [...sessions].filter((s) => s.clientId === client.id && s.date <= a.date).sort((x, y) => y.date.localeCompare(x.date))[0]
+  const status = (nid: string) => statusOf(result.avg[nid], targets[nid])
+  const session = [...(a.state === 'finalised' ? [] : sessions)].filter((s) => s.clientId === client.id && s.date <= a.date).sort((x, y) => y.date.localeCompare(x.date))[0]
   const basisText = a.type === 'diary' ? `the average of ${result.nDays} recorded day${result.nDays === 1 ? '' : 's'}` : a.type === 'typical' ? 'a typical day as described' : 'usual foods and how often they are eaten'
   const flagged = withTarget.filter((n) => ['low', 'below'].includes(status(n.id)) && n.id !== 'energy')
-  const saveAdvice = () => advice !== (a.parentNote ?? '') && saveAssessment({ ...a, parentNote: advice })
+  const saveAdvice = () => a.state !== 'finalised' && advice !== (a.parentNote ?? '') && saveAssessment({ ...a, parentNote: advice })
 
   const header = (title: string) => (
     <header className="flex items-start justify-between gap-6 border-b border-line pb-4">
@@ -175,6 +179,10 @@ export default function ReportPage() {
         <div><dt className="text-[11.5px] text-muted">Milk feeding</dt><dd>{FEEDING_LABEL[client.feeding]}</dd></div>
         <div><dt className="text-[11.5px] text-muted">Latest measurements</dt><dd>{session && (session.weightKg != null || session.heightCm != null) ? `${session.weightKg != null ? `${fmt(session.weightKg, 2)} kg` : ''}${session.weightKg != null && session.heightCm != null ? ' · ' : ''}${session.heightCm != null ? `${fmt(session.heightCm, 1)} cm` : ''} (${formatDate(session.date)})` : 'Not recorded'}</dd></div>
       </dl>
+      {a.days.some(day => day.meals.some(meal => meal.familyNotes)) && <section className="mt-4">
+        <h2 className="font-semibold">Parent-reported food diary notes</h2>
+        {a.days.map(day => day.meals.filter(meal => meal.familyNotes).map(meal => <p className="mt-2 whitespace-pre-wrap text-sm" key={`${day.id}-${meal.id}`}><strong>{day.label}{day.diaryDate ? ` (${formatDate(day.diaryDate)})` : ''} · {meal.name}</strong> {meal.familyNotes}</p>))}
+      </section>}
       {client.context && (
         <section className="avoid-break mt-4">
           <h2 className="mb-1 text-[13px] font-semibold">Key context</h2>
@@ -212,7 +220,7 @@ export default function ReportPage() {
                   <td className="px-2 py-1 text-right">{t ? <>{t.value} <span className="text-muted">{t.type}{t.overridden ? '*' : ''}</span></> : '–'}</td>
                   <td className="px-2 py-1 text-right">{t?.lrni ?? '–'}</td>
                   <td className="px-2 py-1 text-right">{t ? Math.round((tot.v / t.value) * 100) : '–'}</td>
-                  <td className="px-2 py-1">{t ? <StatusChip status={statusOf(tot.v, t)} target={t} /> : <span className="text-muted">No reference</span>}</td>
+                  <td className="px-2 py-1">{t ? <StatusChip status={statusOf(tot, t)} target={t} /> : <span className="text-muted">No reference</span>}</td>
                   <td className="py-1 pl-2 text-right">{tot.missing.length ? `${tot.missing.length} food${tot.missing.length === 1 ? '' : 's'}` : '–'}{tot.lowEst ? ' †' : ''}</td>
                 </tr>
               )
@@ -308,20 +316,24 @@ export default function ReportPage() {
 
   return (
     <div className="min-h-full bg-bg print:bg-white">
-      <div className="no-print sticky top-0 z-20 border-b border-line bg-surface">
+      <div className="app-topbar no-print sticky top-0 z-20 border-b border-line">
         <div className="mx-auto flex max-w-[860px] flex-wrap items-end gap-3 px-4 py-3">
-          <Link to={`/c/${client.id}/a/${a.id}`} className="mb-1.5 inline-flex items-center gap-1.5 text-[13px] text-ink-2 hover:text-ink"><Icon name="arrowLeft" size={15} /> Back</Link>
+          <Link to={`/c/${client.id}/a/${a.id}?step=review`} className="mb-1.5 inline-flex items-center gap-1.5 text-[13px] text-ink-2 hover:text-ink"><Icon name="arrowLeft" size={15} /> Back to assessment</Link>
           <div className="mb-0.5"><Segmented value={view} onChange={setView} options={[{ id: 'parent', label: 'Parent summary' }, { id: 'clinical', label: 'Clinical report' }]} /></div>
           <Field label="Name on the report (not saved)" className="min-w-[12rem] flex-1"><Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={client.firstName} autoComplete="off" /></Field>
-          <Button variant="primary" icon="printer" onClick={() => window.print()}>Print / save as PDF</Button>
+          {!isDraft && <><Button onClick={async () => {setArchiveStatus('Preparing PDF…'); try {const {reportPDF} = await import('../lib/reportPdf'); const bytes = reportPDF(a,view); const url = URL.createObjectURL(new Blob([bytes as BlobPart],{type:'application/pdf'})); const link = document.createElement('a'); link.href=url; link.download=`${client.code}-${a.date}-${view}-${a.id}.pdf`; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); setArchiveStatus('PDF downloaded. Save the issued copy in your private Drive folder.') } catch(e) {setArchiveStatus((e as Error).message)} }}>Download PDF for Drive</Button><span role="status">{archiveStatus}</span>
+          <Button variant="primary" icon="printer" onClick={() => window.print()}>Print / save as PDF</Button></>}
         </div>
         <div className="mx-auto max-w-[860px] px-4 pb-3">
-          <Field label="Recommendations for the family (saved with this food history)">
-            <Textarea rows={3} value={advice} onChange={(e) => setAdvice(e.target.value)} onBlur={saveAdvice} placeholder="Practical next steps in plain language, e.g. offer an iron-rich food at two meals a day…" />
+          <Field label="Recommendations preserved at finalisation (create an amendment to change)">
+            <Textarea readOnly rows={3} value={advice} onChange={(e) => setAdvice(e.target.value)} onBlur={saveAdvice} placeholder="Practical next steps in plain language, e.g. offer an iron-rich food at two meals a day…" />
           </Field>
         </div>
       </div>
-      <article className="print-page mx-auto my-6 max-w-[860px] rounded-xl border border-line bg-white p-8 text-ink shadow-card sm:p-10">{view === 'parent' ? parent : clinical}</article>
+      {isDraft && <div className="mx-auto mt-4 max-w-[860px] rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <strong>Draft preview.</strong> This shows completed days only. To enable PDF downloads, return to the assessment, choose <strong>Review intake</strong>, mark the days complete, and finalise.
+      </div>}
+      <article className="print-page mx-auto my-6 max-w-[860px] rounded-2xl border border-line bg-white p-5 text-ink sm:p-10">{isDraft && <p className="mb-3 font-semibold text-amber-900">Draft preview</p>}{!isDraft || result.nDays > 0 ? (view === 'parent' ? parent : clinical) : <p>No completed days to show yet.</p>}</article>
     </div>
   )
 }

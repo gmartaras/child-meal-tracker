@@ -72,7 +72,7 @@ export async function loadCofid(): Promise<void> {
 }
 
 export function customToFood(c: CustomFood): Food {
-  return { id: 'u:' + c.id, name: c.name, brand: c.brand, kind: c.kind, group: '', per: c.per, unit: c.unit, values: c.values }
+  return { id: 'u:' + c.id, name: c.name, brand: c.brand, sourceFoodId: c.sourceFoodId, kind: c.kind, infantFormula: c.infantFormula, group: '', per: c.per, unit: c.unit, values: c.values }
 }
 
 export function setCustomFoods(list: CustomFood[]): void {
@@ -126,6 +126,8 @@ export interface SearchOptions {
   recents?: string[]
   favourites?: string[]
   limit?: number
+  cofidOnly?: boolean
+  browse?: boolean
 }
 
 /**
@@ -147,11 +149,22 @@ export function searchFoods(query: string, opts: SearchOptions = {}): Food[] {
         out.push(f)
       }
     }
+    if (opts.browse) {
+      const catalogue = index.filter(({food}) => !opts.cofidOnly || food.id.startsWith('c:'))
+      for (const {food} of [...catalogue].sort((a,b) => a.food.name.localeCompare(b.food.name))) {
+        if (!seen.has(food.id)) out.push(food)
+      }
+    }
     return out.slice(0, limit)
   }
   const tokens = q.split(' ').map((t) => stem(SYNONYMS[t] ?? t))
   const scored: { food: Food; score: number }[] = []
   for (const e of index) {
+    if (opts.cofidOnly && !e.food.id.startsWith('c:')) continue
+    if (e.food.id.startsWith('c:') && e.food.id.slice(2).toLowerCase() === query.trim().toLowerCase()) {
+      scored.push({food: e.food, score: 1_000})
+      continue
+    }
     let score = 0
     let ok = true
     for (const t of tokens) {

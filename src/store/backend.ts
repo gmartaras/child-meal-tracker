@@ -10,6 +10,8 @@ export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'me
 
 export interface Doc {
   id: string
+  updatedAt?: number
+  state?: string
 }
 
 export interface AuthUser {
@@ -26,7 +28,8 @@ export interface Backend {
   signOut(): Promise<void>
   /** Live view of a collection. `fromCache` is true until the server has confirmed the data. */
   watch(coll: Coll, cb: (docs: Doc[], fromCache: boolean) => void, onError: (e: Error) => void): () => void
-  put(coll: Coll, doc: Doc): Promise<void>
+  put(coll: Coll, doc: Doc, expected?: number): Promise<void>
+  saveContext(id: string, value: string, previous: string): Promise<void>
   remove(coll: Coll, id: string): Promise<void>
 }
 
@@ -65,15 +68,29 @@ function localBackend(): Backend {
       cb(readLocal(coll), false)
       return () => listeners[coll].delete(cb)
     },
-    async put(coll, doc) {
+    async put(coll, doc, expected) {
       const docs = readLocal(coll)
       const i = docs.findIndex((d) => d.id === doc.id)
+      if (i >= 0 && docs[i].state === "finalised") throw new Error("Finalised record is immutable")
+      if (i >= 0 && expected !== undefined && docs[i].updatedAt !== expected) throw new Error("Record changed elsewhere. Reload before retrying.")
       if (i >= 0) docs[i] = doc
       else docs.push(doc)
       localStorage.setItem(KEY(coll), JSON.stringify(docs))
       emit(coll)
     },
+    async saveContext(id, value, previous) {
+      const docs = readLocal('clients')
+      const current = docs.find((doc) => doc.id === id) as (Doc & { context?: string }) | undefined
+      if (!current) throw new Error('This client record no longer exists.')
+      if ((current.context ?? '') !== previous && current.context !== value) {
+        throw new Error('Key context changed in another tab or device. Copy your text before reloading.')
+      }
+      const next = { ...current, context: value, updatedAt: Math.max(Date.now(), (current.updatedAt ?? 0) + 1) }
+      localStorage.setItem(KEY('clients'), JSON.stringify(docs.map((doc) => doc.id === id ? next : doc)))
+      emit('clients')
+    },
     async remove(coll, id) {
+      if (readLocal(coll).find(d => d.id === id)?.state === "finalised") throw new Error("Finalised record is immutable")
       localStorage.setItem(KEY(coll), JSON.stringify(readLocal(coll).filter((d) => d.id !== id)))
       emit(coll)
     },
@@ -92,7 +109,7 @@ async function cloudBackend(): Promise<Backend> {
   const a = auth.getAuth(app)
   // Offline cache: the app keeps working without signal and syncs when back online.
   const db = fs.initializeFirestore(app, {
-    localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }),
+    localCache: fs.memoryLocalCache(),
     ignoreUndefinedProperties: true,
   })
   const path = (coll: Coll) => {
@@ -120,13 +137,30 @@ async function cloudBackend(): Promise<Backend> {
       return fs.onSnapshot(
         path(coll),
         { includeMetadataChanges: true },
-        (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Doc), id: d.id })), snap.metadata.fromCache),
+        (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Doc), id: d.id })), snap.metadata.fromCache || snap.metadata.hasPendingWrites),
         (e) => onError(e),
       )
     },
-    async put(coll, doc) {
+    async put(coll, doc, expected) {
       // resolves once the server confirms; offline it stays pending while Firestore queues the write
-      await fs.setDoc(fs.doc(path(coll), doc.id), doc)
+      const ref = fs.doc(path(coll), doc.id)
+      await fs.runTransaction(db, async tx => {
+        const current = await tx.get(ref)
+        if (current.exists() && current.data().state === 'finalised') throw new Error('Finalised record is immutable')
+        if (current.exists() && expected !== undefined && current.data().updatedAt !== expected) throw new Error('Record changed elsewhere. Reload before retrying.')
+        tx.set(ref, doc)
+      })
+    },
+    async saveContext(id, value, previous) {
+      const ref = fs.doc(path('clients'), id)
+      await fs.runTransaction(db, async (transaction) => {
+        const current = (await transaction.get(ref)).data()
+        if (!current) throw new Error('This client record no longer exists.')
+        if ((current.context ?? '') !== previous && current.context !== value) {
+          throw new Error('Key context changed in another tab or device. Copy your text before reloading.')
+        }
+        transaction.update(ref, { context: value, updatedAt: Math.max(Date.now(), (current.updatedAt ?? 0) + 1) })
+      })
     },
     async remove(coll, id) {
       await fs.deleteDoc(fs.doc(path(coll), id))
@@ -135,5 +169,7 @@ async function cloudBackend(): Promise<Backend> {
 }
 
 export async function createBackend(): Promise<Backend> {
-  return cloudConfigured ? cloudBackend() : localBackend()
+  if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('demo') === '1') return localBackend()
+  if (!cloudConfigured) throw new Error('Firebase configuration missing.')
+  return cloudBackend()
 }

@@ -70,7 +70,7 @@ export function NutrientTable({ result, targets, panel, selected, onSelect }: { 
               {rows.map((n) => {
                 const tot = result.avg[n.id]
                 const t = targets[n.id]
-                const st = t ? statusOf(tot.v, t) : 'none'
+                const st = t ? statusOf(tot, t) : 'none'
                 const pct = t ? Math.round((tot.v / t.value) * 100) : null
                 return (
                   <button
@@ -218,7 +218,7 @@ export function Headline({ analysis, panel }: { analysis: Analysis; panel: strin
   let met = 0
   for (const id of panel) {
     if (id === 'energy' || !targets[id]) continue
-    const st = statusOf(result.avg[id].v, targets[id])
+    const st = statusOf(result.avg[id], targets[id])
     if (st === 'low') low++
     else if (st === 'below' || st === 'above') below++
     else if (st === 'met') met++

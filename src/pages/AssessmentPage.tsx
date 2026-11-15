@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CustomFoodForm } from '../components/CustomFoodForm'
 import { FoodSearch, type FoodSearchHandle } from '../components/FoodSearch'
 import { Headline, InsightList, MacroBar, NutrientTable, SourcesList } from '../components/analysis'
-import { Banner, Button, Card, Field, Icon, IconButton, Input, Modal, SectionTitle, Select, Tabs, AutoTextarea, confirmDialog, cx } from '../components/ui'
+import { Banner, Button, Card, Field, Icon, IconButton, Input, Modal, SectionTitle, Select, AutoTextarea, confirmDialog, cx } from '../components/ui'
 import { ageInMonths, formatAge, uid } from '../domain/age'
 import { TYPE_LABEL, analyse, previousAssessment } from '../domain/analysis'
 import { dailyAmount, foodOf, rawValue } from '../domain/calc'
 import { BREAST_MILK_ID, getFood } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
 import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
-import { MEAL_NAMES, type Assessment, type CustomFood, type Day, type Food, type Freq, type Item, type Measure } from '../domain/types'
+import { type Assessment, type CustomFood, type Day, type Food, type Freq, type Item, type Measure } from '../domain/types'
 import { useStore } from '../store/store'
 
 export function newDay(label: string, type: Assessment['type']): Day {
-  const names = type === 'ffq' ? ['Foods and drinks'] : MEAL_NAMES
+  const names = type === 'ffq' ? ['Foods and drinks'] : ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Drinks']
   return { id: uid(), label, meals: names.map((name) => ({ id: uid(), name, items: [] })) }
 }
 
@@ -194,50 +194,73 @@ export default function AssessmentPage() {
   const { id, aid } = useParams()
   const nav = useNavigate()
   const client = useStore((s) => s.clients.find((c) => c.id === id))
-  const stored = useStore((s) => s.assessments.find((a) => a.id === aid))
+  const stored = useStore((s) => s.assessments.find((a) => a.id === aid && a.clientId === id))
   const all = useStore((s) => s.assessments)
   const settings = useStore((s) => s.settings)
   const saveAssessment = useStore((s) => s.saveAssessment)
   const deleteAssessment = useStore((s) => s.deleteAssessment)
+  const updateSettings = useStore(s => s.updateSettings)
   const touchRecent = useStore((s) => s.touchRecent)
 
   const [draft, setDraft] = useState<Assessment | null>(null)
   const [dayIdx, setDayIdx] = useState(0)
   const [focusId, setFocusId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>('iron')
-  const [pane, setPane] = useState<'entry' | 'analysis'>('entry')
+  const [searchParams] = useSearchParams()
+  const [pane, setPane] = useState<'entry' | 'review'>(() => searchParams.get('step') === 'review' ? 'review' : 'entry')
   const [creating, setCreating] = useState<{ name: string; dayId: string; mealId: string } | null>(null)
   const [saved, setSaved] = useState(true)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const [finalising, setFinalising] = useState(false)
+  useEffect(() => {
+    const guard = (e: BeforeUnloadEvent) => { if (!saved) { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [saved])
   const searchRefs = useRef<Record<string, FoodSearchHandle | null>>({})
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latest = useRef<Assessment | null>(null)
+  const writes = useRef(Promise.resolve(true))
+  const acknowledged = useRef<number | undefined>(undefined)
+  const persist = useCallback((record: Assessment) => {
+    const job = writes.current.then(async previousOK => {
+      if (!previousOK) { setSaveFailed(true); return false }
+      const copy = {...record, updatedAt: acknowledged.current ?? record.updatedAt}
+      const ok = await saveAssessment(copy)
+      if (ok) { acknowledged.current = copy.updatedAt; record.updatedAt = copy.updatedAt }
+      setSaveFailed(!ok)
+      return ok
+    })
+    writes.current = job
+    return job
+  }, [saveAssessment])
 
   useEffect(() => {
     if (stored && (!draft || draft.id !== stored.id)) setDraft(stored)
   }, [stored, draft])
 
-  const flush = useCallback(() => {
+  const flush = useCallback(async () => {
     if (timer.current) {
       clearTimeout(timer.current)
       timer.current = null
-      if (latest.current) saveAssessment(latest.current)
-      setSaved(true)
+      if (latest.current) setSaved(await persist(latest.current))
     }
-  }, [saveAssessment])
-  useEffect(() => () => flush(), [flush])
+    return writes.current
+  }, [persist])
+  useEffect(() => () => { void flush() }, [flush])
 
   const update = useCallback(
     (fn: (a: Assessment) => Assessment) => {
       setDraft((d) => {
-        if (!d) return d
-        const next = fn(d)
+        if (!d || d.state === "finalised") return d
+        const next = { ...fn(d), state: "draft" as const }
         latest.current = next
         setSaved(false)
         if (timer.current) clearTimeout(timer.current)
-        timer.current = setTimeout(() => {
+        timer.current = setTimeout(async () => {
           timer.current = null
-          saveAssessment(next)
-          setSaved(true)
+          const ok = await persist(next)
+          if (latest.current === next) setSaved(ok)
         }, 500)
         return next
       })
@@ -245,16 +268,46 @@ export default function AssessmentPage() {
     [saveAssessment],
   )
 
+  const retrySave = async () => {
+    if (!latest.current) return
+    writes.current = Promise.resolve(true)
+    setSaveFailed(false)
+    setSaved(await persist(latest.current))
+  }
+
   const prev = useMemo(() => (draft ? previousAssessment(draft, all) : undefined), [draft, all])
   const analysis = useMemo(() => (draft && client ? analyse(draft, client, settings, prev) : null), [draft, client, settings, prev])
 
   if (!client) return <div className="p-8 text-ink-2">Client not found. <Link className="text-accent-ink underline" to="/">Back to clients</Link></div>
   if (!draft || !analysis) return <div className="p-8 text-ink-2">{stored === undefined ? 'Food history not found.' : 'Loading…'}</div>
 
+  const finalised = draft.state === 'finalised'
+  const hasEntries = draft.days.some(d => d.complete || d.diaryDate || d.meals.some(m => m.items.length || m.familyNotes))
+  const changeFormat = (type: Assessment['type']) => {
+    if (type === draft.type || hasEntries) return
+    const count = type === 'diary' ? 3 : 1
+    setDayIdx(0)
+    update(a => ({
+      ...a, type, title: type === 'diary' ? '3-day food diary' : TYPE_LABEL[type],
+      days: Array.from({length: count}, (_, index) => newDay(type === 'diary' ? `Day ${index + 1}` : TYPE_LABEL[type], type)),
+    }))
+  }
+  const incompleteDays = draft.days.filter(d => !d.complete && !d.excluded)
+  const needsQuantity = draft.days.some(d => !d.excluded && d.meals.some(m => m.items.some(i => !(i.amount > 0))))
+  const whyBlocked = saveFailed ? 'Retry saving your edits before finalising.'
+    : needsQuantity ? 'Enter a quantity for each food or remove the empty row.'
+    : incompleteDays.length ? 'Mark each day complete below once the food and amounts are recorded.'
+    : !analysis.result.nDays ? 'Include at least one completed day.'
+    : !saved ? 'Saving your edits. Finalise will be available once they are saved.' : ''
+
+  const openReport = async (kind: 'parent' | 'clinical') => {
+    if (await flush()) nav(`/c/${client.id}/report/${draft.id}/${kind}`)
+  }
+
   const ageMonths = ageInMonths(client.dob, draft.date)
   const day = draft.days[Math.min(dayIdx, draft.days.length - 1)]
   const mapDay = (dayId: string, fn: (d: Day) => Day) => update((a) => ({ ...a, days: a.days.map((d) => (d.id === dayId ? fn(d) : d)) }))
-  const mapMeal = (dayId: string, mealId: string, fn: (items: Item[]) => Item[]) => mapDay(dayId, (d) => ({ ...d, meals: d.meals.map((m) => (m.id === mealId ? { ...m, items: fn(m.items) } : m)) }))
+  const mapMeal = (dayId: string, mealId: string, fn: (items: Item[]) => Item[]) => mapDay(dayId, (d) => ({ ...d, complete: false, meals: d.meals.map((m) => (m.id === mealId ? { ...m, items: fn(m.items) } : m)) }))
 
   const addFood = (dayId: string, mealId: string, food: Food, customDoc?: CustomFood) => {
     const custom = customDoc ?? (food.id.startsWith('u:') ? useStore.getState().foods.find((f) => 'u:' + f.id === food.id) : undefined)
@@ -273,7 +326,7 @@ export default function AssessmentPage() {
       amount: base ? 0 : m.amount,
       ...(m.estimate ? { estimate: true } : {}),
       ...(draft.type === 'ffq' ? { freq: { times: 1, per: 'day' as const } } : {}),
-      ...(custom ? { snap: { kind: custom.kind, per: custom.per, values: custom.values } } : {}),
+      ...(custom ? { snap: { sourceFoodId: custom.sourceFoodId, infantFormula: custom.infantFormula, kind: custom.kind, per: custom.per, values: custom.values } } : {}),
     }
     mapMeal(dayId, mealId, (items) => [...items, item])
     setFocusId(item.id)
@@ -315,9 +368,19 @@ export default function AssessmentPage() {
           </label>
         </div>
       )}
+      {draft.type === 'diary' && <Field label={`Diary date for ${day.label} (optional)`}><Input type="date" value={day.diaryDate ?? ''} onChange={e => mapDay(day.id, d => ({...d, diaryDate: e.target.value}))} /></Field>}
       {draft.type === 'typical' && <Banner>Record a usual day. For foods not eaten daily, set how often on each line and the app scales them to a daily average.</Banner>}
       {draft.type === 'ffq' && <Banner>List each food with its usual portion and how often it is eaten; the app converts everything to a daily average.</Banner>}
 
+      <Card className="my-3 flex flex-wrap gap-2 p-3">
+        <Button onClick={() => {
+          const name = window.prompt('Name this reusable day of meals')
+          if (!name?.trim()) return
+          const items = day.meals.flatMap(m => m.items).map(i => { const f = foodOf(i); return f ? {...i, snap: {kind: f.kind, sourceFoodId: f.sourceFoodId, infantFormula: f.infantFormula, per: f.per, values: {...f.values}}} : i })
+          updateSettings({savedMeals: [...(settings.savedMeals ?? []), {id: uid(), name: name.trim(), items}]})
+        }}>Save foods as reusable meal</Button>
+        <Select aria-label="Insert saved meal" value="" onChange={e => { const savedMeal = settings.savedMeals?.find(m => m.id === e.target.value); if (savedMeal && day.meals[0]) mapMeal(day.id, day.meals[0].id, items => [...items, ...savedMeal.items.map(i => ({...i, id: uid()}))]) }}><option value="">Insert a saved meal…</option>{settings.savedMeals?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</Select>
+      </Card>
       {day.meals.map((meal) => {
         const mealKcal = meal.items.reduce((sum, it) => {
           const f = foodOf(it)
@@ -350,6 +413,12 @@ export default function AssessmentPage() {
               </div>
             )}
             <div className={cx('px-3 pb-3', meal.items.length ? 'border-t border-line pt-3' : 'pt-1')}>
+              <details className="mb-2">
+                <summary className="cursor-pointer text-sm text-ink-2">Family notes {meal.familyNotes ? '· added' : ''}</summary>
+                <Field label={`Family notes for ${meal.name}`} hint="Record foods offered, refused or only partly eaten. Add foods actually eaten below for the nutrient calculation.">
+                  <AutoTextarea value={meal.familyNotes ?? ''} onChange={familyNotes => mapDay(day.id, d => ({...d, meals:d.meals.map(m => m.id === meal.id ? {...m, familyNotes} : m)}))} />
+                </Field>
+              </details>
               <FoodSearch
                 ref={(h) => {
                   searchRefs.current[meal.id] = h
@@ -372,7 +441,7 @@ export default function AssessmentPage() {
 
   const sel = selected && settings.panel.includes(selected) ? selected : null
   const results = analysis.result.nDays === 0 ? (
-    <Card className="p-6 text-center text-[13px] text-ink-2">Add the first food to see the analysis here. Results update as you type.</Card>
+    <Card className="p-6 text-center text-[13px] text-ink-2">Mark a day complete in Review to see its nutrient totals.</Card>
   ) : (
     <div className="space-y-4">
       <Card className="p-4">
@@ -406,17 +475,16 @@ export default function AssessmentPage() {
   )
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6 sm:py-5">
+    <div className="app-page">
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link to={`/c/${client.id}`} onClick={flush} className="inline-flex items-center gap-1.5 text-[13px] text-ink-2 hover:text-ink">
           <Icon name="arrowLeft" size={15} /> {client.firstName}
         </Link>
         <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[12px] font-medium text-ink-2">{TYPE_LABEL[draft.type]}</span>
-        <span className="text-[12px] text-muted" aria-live="polite">{saved ? 'All changes saved' : 'Saving…'}</span>
+        <span className="text-[12px] text-muted" aria-live="polite">{saved ? (useStore.getState().mode === 'cloud' ? 'Saved to cloud' : 'Saved in this browser only') : saveFailed ? 'Save failed' : 'Saving changes…'}</span>
+        {saveFailed && <Button size="sm" onClick={retrySave}>Retry save</Button>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button size="sm" icon="file" onClick={() => (flush(), nav(`/c/${client.id}/report/${draft.id}/parent`))}>Parent summary</Button>
-          <Button size="sm" icon="file" onClick={() => (flush(), nav(`/c/${client.id}/report/${draft.id}/clinical`))}>Clinical report</Button>
-          <IconButton
+          {!finalised && <IconButton
             icon="trash"
             label="Delete this food history"
             onClick={() => {
@@ -426,19 +494,67 @@ export default function AssessmentPage() {
               deleteAssessment(draft.id)
               nav(`/c/${client.id}`)
             }}
-          />
+          />}
         </div>
       </div>
+      <div className="workspace-hero mb-5 rounded-2xl border border-line p-5 sm:p-7">
+        <h1 className="page-title text-2xl font-semibold sm:text-3xl">{draft.title}</h1>
+        <p className="text-sm text-ink-2">{client.firstName} · {finalised ? 'Finalised' : draft.scenarioOf ? 'Planning scenario' : 'Draft'}</p>
+      </div>
+      <nav aria-label="Assessment steps" className="mb-5 grid gap-1.5 rounded-xl border border-line bg-surface p-1.5 sm:grid-cols-3">
+        <Button className="justify-start sm:justify-center" variant={pane === 'entry' && !finalised ? 'primary' : undefined} onClick={() => setPane('entry')}>1. {finalised ? 'Food history' : 'Enter foods'}</Button>
+        <Button className="justify-start sm:justify-center" variant={pane === 'review' && !finalised ? 'primary' : undefined} onClick={() => setPane('review')}>2. Review intake</Button>
+        <span className={cx('rounded-lg border px-3 py-2 text-sm font-medium', finalised ? 'border-line bg-good-wash text-good-ink' : 'border-line bg-surface-2 text-ink-2')}>3. Reports {finalised ? 'ready' : '· preview in Review'}</span>
+      </nav>
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Field label="Title" className="min-w-[14rem] flex-1"><Input value={draft.title} onChange={(e) => update((a) => ({ ...a, title: e.target.value }))} /></Field>
-        <Field label="Date" className="w-40"><Input type="date" value={draft.date} onChange={(e) => e.target.value && update((a) => ({ ...a, date: e.target.value }))} /></Field>
+        <Field label="Title" className="min-w-[14rem] flex-1"><Input disabled={finalised} value={draft.title} onChange={(e) => update((a) => ({ ...a, title: e.target.value }))} /></Field>
+        <Field label="Date" className="w-40"><Input disabled={finalised} type="date" value={draft.date} onChange={(e) => e.target.value && update((a) => ({ ...a, date: e.target.value }))} /></Field>
       </div>
 
-      <Tabs className="mb-4 lg:hidden" value={pane} onChange={setPane} tabs={[{ id: 'entry', label: 'Food entry', count: analysis.result.itemCount }, { id: 'analysis', label: 'Analysis' }]} />
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <div className={cx(pane === 'entry' ? 'block' : 'hidden', 'lg:block')}>{entry}</div>
-        <div className={cx(pane === 'analysis' ? 'block' : 'hidden', 'scroll-thin lg:sticky lg:top-4 lg:block lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto lg:pr-1')}>{results}</div>
-      </div>
+      {(pane === 'review' || finalised) && <Card className="mb-5 space-y-3 border-t-2 border-t-accent p-5">
+        <p className="font-medium">{draft.scenarioOf ? 'Planning scenario' : draft.state === 'finalised' ? 'Finalised record — read only' : 'Draft assessment'} · {analysis.result.nDays} completed days</p>
+        <p className="text-sm text-ink-2">Tick each day when its food and amounts are ready. Only completed days enter the average.</p>
+        <div className="flex flex-wrap gap-3">{draft.days.map(d => <label key={d.id} className="flex gap-2"><input type="checkbox" checked={d.complete === true} disabled={finalised || finalising} onChange={e => mapDay(d.id, x => ({...x, complete: e.target.checked}))} />{d.label} complete</label>)}</div>
+        <label className="flex gap-2"><input type="checkbox" checked={draft.unquantifiedBreastMilk ?? false} disabled={finalised || finalising} onChange={e => update(a => ({...a, unquantifiedBreastMilk:e.target.checked}))}/>Breastfeeding recorded, volume unquantified (totals are incomplete)</label>
+        <Field label="Agreed actions and follow-up (shared with parents)"><AutoTextarea disabled={finalised || finalising} value={draft.parentNote ?? ''} onChange={v => update(a => ({...a, parentNote: v}))} /></Field>
+        <div className="flex flex-wrap gap-2">
+        <Button size="sm" icon="file" disabled={saveFailed || finalising} onClick={() => void openReport('parent')}>{finalised ? 'Parent summary' : 'Preview parent summary'}</Button>
+        <Button size="sm" icon="file" disabled={saveFailed || finalising} onClick={() => void openReport('clinical')}>{finalised ? 'Clinical report' : 'Preview clinical report'}</Button>
+        {!finalised ? <Button variant="primary" disabled={!!whyBlocked || finalising} aria-describedby="finalise-help" onClick={async () => {
+          if (!confirmDialog('Save this assessment as final and unlock PDF downloads? Any later corrections will be saved as an amendment.')) return
+          setFinalising(true)
+          const frozen: Assessment = {...draft, days: draft.days.map(d => ({...d, meals: d.meals.map(m => ({...m, items: m.items.map(i => { const f = foodOf(i); return f ? {...i, snap: {kind: f.kind, sourceFoodId: f.sourceFoodId, infantFormula: f.infantFormula, per: f.per, values: {...f.values}}} : i })}))})), state: 'finalised', snapshot: {analysis: JSON.parse(JSON.stringify(analysis)), client: JSON.parse(JSON.stringify({...client, resources:undefined, goals:undefined})), settings: JSON.parse(JSON.stringify({...settings, savedMeals:undefined, recents:[], favourites:[], measures:{}})), finalisedAt: new Date().toISOString(), calculatorVersion: '2.0.0'}}
+          if (await persist(frozen)) { setDraft(frozen); latest.current = null; setSaved(true) }
+          setFinalising(false)
+        }}>{finalising ? "Finalising…" : "Finalise and enable PDFs"}</Button> : <>
+        <Button onClick={async () => { const next: Assessment = {...draft, id: uid(), state: 'draft', snapshot: undefined, amendmentOf: draft.id, createdAt: Date.now(), updatedAt: Date.now()}; if (await saveAssessment(next)) nav(`/c/${client.id}/a/${next.id}`) }}>Create amendment</Button>
+        <Button onClick={async () => { const next: Assessment = {...draft, id: uid(), state: 'draft', snapshot: undefined, scenarioOf: draft.id, title: 'Scenario: ' + draft.title, createdAt: Date.now(), updatedAt: Date.now()}; if (await saveAssessment(next)) nav(`/c/${client.id}/a/${next.id}`) }}>What-if scenario</Button>
+        <Button onClick={() => window.open(`${window.location.pathname}${window.location.search}#/c/${client.id}/family/${draft.id}`, '_blank', 'noopener')}>Open family view</Button>
+        </>}
+        </div>
+        {!finalised && <p id="finalise-help" className="text-sm text-ink-2" role="status">{whyBlocked || 'Ready to finalise. You can preview both reports first.'}</p>}
+      </Card>}
+      {pane === 'entry' ? <div className="space-y-4">
+        {!finalised && <Card className="space-y-2 p-4">
+          <Field label="Food history format">
+            <Select value={draft.type} disabled={hasEntries || finalising} onChange={event => changeFormat(event.target.value as Assessment['type'])}>
+              <option value="diary">3-day food diary</option>
+              <option value="typical">Typical day</option>
+              <option value="ffq">Food frequency</option>
+            </Select>
+          </Field>
+          <p className="text-sm text-ink-2">{hasEntries ? 'Format is fixed once you start recording. Add another food history to use a different format.' :
+            draft.type === 'diary' ? 'Use the diary when the family records what was eaten on specific days. Each day is entered separately.' :
+            draft.type === 'typical' ? 'Use a typical day when the family describes their usual routine.' :
+            'Use food frequency for foods reported by how often they are eaten over a day, week or month.'}</p>
+        </Card>}
+
+        <div className="rounded-xl border border-line bg-accent-wash p-4 text-sm text-ink">
+          Search CoFID foods by name and enter a portion for each item. When finished, choose <strong>Review intake</strong>.
+        </div>
+        <fieldset disabled={finalised || finalising}>{entry}</fieldset>
+        <Button variant="primary" onClick={() => {setPane('review'); document.querySelector('.app-main')?.scrollTo({top: 0})}}>Review intake</Button>
+      </div> : results}
 
       {creating && (
         <CustomFoodForm

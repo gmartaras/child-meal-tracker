@@ -10,7 +10,7 @@ import { DEFAULT_SETTINGS, useStore, type Backup } from '../store/store'
 
 function Section({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
   return (
-    <section className="grid gap-3 border-t border-line py-6 first:border-0 lg:grid-cols-[240px_1fr] lg:gap-8">
+    <section className="grid gap-4 rounded-xl border border-line bg-surface p-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8">
       <div>
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {intro && <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{intro}</p>}
@@ -72,7 +72,7 @@ export default function SettingsPage() {
     try {
       const data = JSON.parse(await f.text()) as Backup
       if (!confirmDialog(`Restore ${data.clients?.length ?? 0} clients and ${data.assessments?.length ?? 0} food histories from this backup (${data.exportedAt?.slice(0, 10)})? Records with the same ID are overwritten; nothing else is deleted.`)) return
-      const n = importBackup(data)
+      const n = await importBackup(data)
       setMsg(`Restored ${n} records.`)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Could not read that file.')
@@ -86,10 +86,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7">
-      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+    <div className="app-page">
+      <header className="workspace-hero rounded-2xl border border-line p-5 sm:p-7">
+        <h1 className="page-title text-3xl font-semibold">Settings</h1>
+        <p className="mt-2 text-sm text-ink-2">Practice details, nutrient references and data backups.</p>
+      </header>
 
-      <div className="mt-2">
+      <div className="mt-5 space-y-4">
         <Section title="Practice details" intro="Shown in the header of printed reports.">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Practice name"><Input defaultValue={settings.practiceName} onBlur={(e) => update({ practiceName: e.target.value.trim() })} /></Field>
@@ -134,7 +137,7 @@ export default function SettingsPage() {
           <p className="mt-2 text-[12px] text-muted">Composition comes from CoFID “Milk, human, mature”, which has no vitamin D value. Anything logged with an estimated volume is labelled as an estimate in the analysis and on reports.</p>
         </Section>
 
-        <Section title="Reference values" intro="The UK dietary reference values built into the app. Please check them against the published sources before relying on them clinically; tell me if any figure needs correcting.">
+        <Section title="Reference values" intro="These age-based benchmarks are separate from the CoFID food data. They help compare recorded intake with UK guidance. Check the benchmark and any estimated portion or breast-milk amount before using the comparison to advise a family.">
           <Banner tone="warning">Transcribed from COMA 1991 (RNI, LRNI), SACN 2011 (energy), SACN 2015 (fibre), SACN 2016 (vitamin D) and SACN 2003 (salt). Not yet verified by a dietitian.</Banner>
           <Button size="sm" className="mt-3" onClick={() => setShowRef(!showRef)}>{showRef ? 'Hide tables' : 'Show the full tables'}</Button>
           {showRef && (

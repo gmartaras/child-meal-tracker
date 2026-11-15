@@ -10,7 +10,7 @@ import type { Day, Item } from '../src/domain/types'
 const item = (foodId: string, amount: number, extra: Partial<Item> = {}): Item => ({
   id: Math.random().toString(36), foodId, name: getFood(foodId)?.name ?? foodId, amount, unit: 'g', qty: 1, measure: 'g', measureAmount: amount, ...extra,
 })
-const day = (label: string, items: Item[]): Day => ({ id: label, label, meals: [{ id: 'm', name: 'Meal', items }] })
+const day = (label: string, items: Item[]): Day => ({ complete: items.length > 0, id: label, label, meals: [{ id: 'm', name: 'Meal', items }] })
 
 beforeAll(async () => {
   await loadCofid()
@@ -82,11 +82,11 @@ describe('calculation', () => {
     expect(r.avg.energy.missing).toEqual([])
     expect(r.avg.salt.v).toBeCloseTo((15 * 8 * 2.5) / 1000 + 0.1, 6)
   })
-  it('tracks supplements separately and never flags them as missing data', () => {
+  it('tracks supplements separately and preserves unknown label nutrients', () => {
     const r = computeAssessment({ days: [day('1', [item('c:12-596', 100), item('u:vitd', 1, { unit: 'dose' })])] })
     expect(r.avg.vitd.supp).toBe(10)
     expect(r.avg.vitd.v).toBeCloseTo(10, 6) // whole milk vitamin D is trace
-    expect(r.avg.iron.missing).toEqual([])
+    expect(r.avg.iron.missing).toEqual(['Vitamin D drops'])
     expect(r.usesSupplements).toBe(true)
   })
   it('uses the frozen snapshot of a custom food', () => {
@@ -137,8 +137,8 @@ describe('age and reference values', () => {
     expect(statusOf(5.0, t.iron)).toBe('below')
     expect(statusOf(7.0, t.iron)).toBe('met')
     expect(statusOf(2.5, t.salt)).toBe('above')
-    expect(statusOf(900, t.energy)).toBe('met')
-    expect(statusOf(700, t.energy)).toBe('below')
+    expect(statusOf(900, t.energy)).toBe('unknown')
+    expect(statusOf(700, t.energy)).toBe('unknown')
   })
   it('applies per-child overrides', () => {
     const t = targetsFor(26, 'F', 'na', { energy: 1100, iron: 3 })
@@ -152,7 +152,7 @@ describe('measures and insights', () => {
     const labels = (id: string) => measuresFor(getFood(id)!).map((m) => m.label)
     expect(labels('c:12-596')).toContain('beaker / small cup (150 ml)')
     expect(labels(searchFoods('bananas')[0].id)).toContain('medium banana')
-    const bm = measuresFor(getFood(BREAST_MILK_ID)!, { ageMonths: 5, bm: { perFeedYounger: 135, perFeedOlder: 100, olderFromMonths: 8, exclusiveDay: 780, mainMilkDay: 600, density: 1.03 } })
+    const bm = measuresFor(getFood(BREAST_MILK_ID)!, { ageMonths: 5, bm: { estimatesApproved: true, perFeedYounger: 135, perFeedOlder: 100, olderFromMonths: 8, exclusiveDay: 780, mainMilkDay: 600, density: 1.03 } })
     expect(bm[0]).toMatchObject({ label: 'breastfeed (est. 135 ml)', estimate: true })
     expect(bm[0].amount).toBeCloseTo(139.05, 2)
   })

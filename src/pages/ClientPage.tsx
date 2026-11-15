@@ -1,64 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ClientForm, FEEDING_LABEL } from '../components/ClientForm'
 import { TrendChart, type TrendPoint } from '../components/TrendChart'
 import { StatusChip } from '../components/analysis'
-import { AutoTextarea, Banner, Button, Card, Empty, Field, Icon, IconButton, Input, Modal, SectionTitle, Segmented, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
+import { AutoTextarea, Banner, Button, Card, Empty, Field, Icon, IconButton, Input, Modal, Select, SectionTitle, Segmented, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
 import { ageInMonths, formatAge, formatDate, todayISO, uid } from '../domain/age'
 import { TYPE_LABEL, analyse, type Analysis } from '../domain/analysis'
 import { referenceTargets, statusOf } from '../domain/drv'
 import { GROUP_ORDER, NUTRIENTS, fmt, fmtNutrient } from '../domain/nutrients'
-import type { Assessment, AssessmentType, Client, Session } from '../domain/types'
-import { exportClientExcel } from '../lib/export'
+import type { Assessment, Client, Session } from '../domain/types'
+import { exportClientExcel, exportClientRecord } from '../lib/export'
 import { useStore } from '../store/store'
 import { newDay } from './AssessmentPage'
-
-// ---------- new food history ----------
-const TYPES: { id: AssessmentType; title: string; text: string }[] = [
-  { id: 'diary', title: 'Food diary', text: 'Enter each recorded day meal by meal. Days are averaged.' },
-  { id: 'typical', title: 'Typical day', text: 'Build one usual day; set how often less-regular foods are eaten.' },
-  { id: 'ffq', title: 'Food frequency', text: 'List foods with a portion and how often they are eaten.' },
-]
-
-function NewAssessment({ client, onClose }: { client: Client; onClose: () => void }) {
-  const save = useStore((s) => s.saveAssessment)
-  const nav = useNavigate()
-  const [type, setType] = useState<AssessmentType>('diary')
-  const [date, setDate] = useState(todayISO())
-  const [days, setDays] = useState(3)
-  const create = () => {
-    const now = Date.now()
-    const n = type === 'diary' ? Math.min(Math.max(days, 1), 14) : 1
-    const a: Assessment = {
-      id: uid(),
-      clientId: client.id,
-      date,
-      type,
-      title: type === 'diary' ? `${n}-day food diary` : TYPE_LABEL[type],
-      days: Array.from({ length: n }, (_, i) => newDay(type === 'diary' ? `Day ${i + 1}` : TYPE_LABEL[type], type)),
-      createdAt: now,
-      updatedAt: now,
-    }
-    save(a)
-    nav(`/c/${client.id}/a/${a.id}`)
-  }
-  return (
-    <Modal title="New food history" onClose={onClose} footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" onClick={create}>Start entering foods</Button></>}>
-      <div className="grid gap-2">
-        {TYPES.map((t) => (
-          <button key={t.id} type="button" aria-pressed={type === t.id} onClick={() => setType(t.id)} className={cx('rounded-xl border px-3.5 py-2.5 text-left transition-colors', type === t.id ? 'border-ink bg-surface-2' : 'border-line hover:bg-surface-2')}>
-            <div className="text-sm font-medium">{t.title}</div>
-            <div className="text-[12.5px] text-ink-2">{t.text}</div>
-          </button>
-        ))}
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <Field label="Date of the history"><Input type="date" value={date} max={todayISO()} onChange={(e) => e.target.value && setDate(e.target.value)} /></Field>
-        {type === 'diary' && <Field label="Number of days"><Input type="number" min={1} max={14} value={days} onChange={(e) => setDays(parseInt(e.target.value) || 1)} /></Field>}
-      </div>
-    </Modal>
-  )
-}
 
 // ---------- session note + measurements ----------
 function SessionForm({ client, session, onClose }: { client: Client; session?: Session; onClose: () => void }) {
@@ -66,6 +19,7 @@ function SessionForm({ client, session, onClose }: { client: Client; session?: S
   const del = useStore((s) => s.deleteSession)
   const [date, setDate] = useState(session?.date ?? todayISO())
   const [note, setNote] = useState(session?.note ?? '')
+  const [saving, setSaving] = useState(false)
   const [w, setW] = useState(session?.weightKg != null ? String(session.weightKg) : '')
   const [h, setH] = useState(session?.heightCm != null ? String(session.heightCm) : '')
   const num = (s: string) => {
@@ -75,13 +29,18 @@ function SessionForm({ client, session, onClose }: { client: Client; session?: S
   return (
     <Modal
       wide
-      title={session ? 'Edit session' : 'New session'}
+      title={session ? 'Edit session note' : 'New session note'}
       onClose={onClose}
       footer={
         <>
           {session && <Button variant="danger" className="mr-auto" icon="trash" onClick={() => confirmDialog('Delete this session note and its measurements?') && (del(session.id), onClose())}>Delete</Button>}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => (save({ id: session?.id, clientId: client.id, date, note: note.trim(), weightKg: num(w), heightCm: num(h) }), onClose())}>Save session</Button>
+          <Button variant="primary" disabled={saving || (!note.trim() && !num(w) && !num(h))} onClick={async () => {
+            setSaving(true)
+            const ok = await save({id:session?.id, clientId:client.id, date, note:note.trim(), weightKg:num(w), heightCm:num(h)})
+            setSaving(false)
+            if (ok) onClose()
+          }}>{saving ? 'Saving…' : 'Save session note'}</Button>
         </>
       }
     >
@@ -100,12 +59,12 @@ function SessionForm({ client, session, onClose }: { client: Client; session?: S
 // ---------- timeline ----------
 function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analysis; panel: string[] }) {
   const { result, targets } = analysis
-  const flags = panel.filter((id) => targets[id] && id !== 'energy').map((id) => ({ id, st: statusOf(result.avg[id].v, targets[id]) }))
+  const flags = panel.filter((id) => targets[id] && id !== 'energy').map((id) => ({ id, st: statusOf(result.avg[id], targets[id]) }))
   const low = flags.filter((f) => f.st === 'low').length
   const off = flags.filter((f) => f.st === 'below' || f.st === 'above').length
   const e = targets.energy
   return (
-    <Link to={`/c/${a.clientId}/a/${a.id}`} className="block rounded-xl border border-line bg-surface p-3.5 transition-colors hover:border-line-strong">
+    <Link to={`/c/${a.clientId}/a/${a.id}`} className="workspace-row block rounded-xl border border-line bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -121,7 +80,7 @@ function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analy
           <span className="tnum"><span className="font-semibold">{fmt(result.avg.energy.v, 0)}</span> kcal/day{e ? ` · ${Math.round((result.avg.energy.v / e.value) * 100)}% of EAR` : ''}</span>
           {low > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="low" compact /> {low} below LRNI</span>}
           {off > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="below" compact /> {off} outside target</span>}
-          {!low && !off && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
+          {!low && !off && !flags.some(f => f.st === "unknown") && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
         </div>
       ) : (
         <div className="mt-2 text-[12.5px] text-muted">No foods entered yet</div>
@@ -156,7 +115,7 @@ function SessionCard({ s, client, onEdit }: { s: Session; client: Client; onEdit
 // ---------- progress ----------
 function Progress({ client, rows, sessions, panel }: { client: Client; rows: { a: Assessment; an: Analysis }[]; sessions: Session[]; panel: string[] }) {
   const [mode, setMode] = useState<'pct' | 'abs'>('pct')
-  const done = rows.filter((r) => r.an.result.nDays > 0).sort((x, y) => x.a.date.localeCompare(y.a.date))
+  const done = rows.filter((r) => r.a.state === "finalised" && !r.a.scenarioOf && r.an.result.nDays > 0).sort((x, y) => x.a.date.localeCompare(y.a.date))
   const weights: TrendPoint[] = sessions.filter((s) => s.weightKg != null).map((s) => ({ date: s.date, value: s.weightKg!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
   const heights: TrendPoint[] = sessions.filter((s) => s.heightCm != null).map((s) => ({ date: s.date, value: s.heightCm!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
   const shown = NUTRIENTS.filter((n) => panel.includes(n.id))
@@ -222,7 +181,7 @@ function Progress({ client, rows, sessions, panel }: { client: Client; rows: { a
                           <td className="px-3 py-1.5 text-right">{fmtNutrient(n.id, a)}</td>
                           <td className="px-3 py-1.5 text-right font-medium">{fmtNutrient(n.id, b)}</td>
                           <td className="px-3 py-1.5 text-right text-ink-2">{Math.abs(d) < Math.pow(10, -n.dp) / 2 ? '–' : `${d > 0 ? '+' : '−'}${fmtNutrient(n.id, Math.abs(d))}`}</td>
-                          <td className="px-4 py-1.5">{t ? <StatusChip status={statusOf(b, t)} target={t} /> : <span className="text-[12px] text-muted">No reference</span>}</td>
+                          <td className="px-4 py-1.5">{t ? <StatusChip status={statusOf(latest.an.result.avg[n.id], t)} target={t} /> : <span className="text-[12px] text-muted">No reference</span>}</td>
                         </tr>
                       )
                     })}
@@ -318,6 +277,106 @@ function Targets({ client }: { client: Client }) {
 }
 
 // ---------- page ----------
+function ClientContext({ client }: { client: Client }) {
+  const saveContext = useStore((state) => state.saveContext)
+  const [edit, setEdit] = useState<{ original: string; text: string } | null>(null)
+  const [savedValue, setSavedValue] = useState<string>()
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const context = edit?.text ?? savedValue ?? client.context
+  const original = edit?.original ?? savedValue ?? client.context
+  const dirty = edit !== null && context !== original
+
+  useEffect(() => {
+    if (client.context === savedValue) setSavedValue(undefined)
+  }, [client.context, savedValue])
+
+  const save = async () => {
+    setSaving(true)
+    setMessage('')
+    try {
+      await saveContext(client.id, context, original)
+      setSavedValue(context)
+      setEdit(null)
+      setMessage('Context saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save your context. Try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <Field label="Key context" hint="Private notes about feeding, medical history or family priorities.">
+        <AutoTextarea value={context} disabled={saving} onChange={(text) => {
+          setEdit({ original, text })
+          setMessage('')
+        }} minRows={2} placeholder="Allergies, feeding concerns, medication or goals…" />
+      </Field>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button size="sm" variant="primary" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save context'}</Button>
+        <span className="text-sm text-ink-2" role="status">{message || (dirty ? 'Unsaved changes' : '')}</span>
+      </div>
+    </Card>
+  )
+}
+
+const RESOURCE_CATEGORIES = ['Food diary', 'Accepted foods list', 'Questionnaire', 'Meal plan', 'Other handout']
+
+function privateDriveLink(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(url.hostname) || url.username || url.password) return
+    if (!/^\/(?:file\/d\/|drive\/(?:u\/\d+\/)?folders\/|(?:document|spreadsheets|presentation|forms)\/d\/)/.test(url.pathname)) return
+    return url.href
+  } catch {
+    return undefined
+  }
+}
+
+function ClientResources({ client }: { client: Client }) {
+  const save = useStore(s => s.saveResources)
+  const [category, setCategory] = useState(RESOURCE_CATEGORIES[0])
+  const [title, setTitle] = useState('')
+  const [url, setUrl] = useState('')
+  const [pending, setPending] = useState(false)
+  const [status, setStatus] = useState('')
+  const resources = client.resources ?? []
+  const saveList = async (list: NonNullable<Client['resources']>) => {
+    setPending(true)
+    const ok = await save(client, list)
+    setPending(false)
+    setStatus(ok ? 'Files and handouts updated.' : 'Changes could not be saved. Your entry is still here.')
+    return ok
+  }
+
+  return <details className="mt-4 rounded-xl border border-line bg-surface p-4">
+    <summary className="cursor-pointer font-semibold">Files and handouts</summary>
+    <p className="my-3 text-sm text-ink-2">Link the family's completed diary, questionnaires and handouts in your practice Drive. File permissions are managed in Drive.</p>
+    <ul className="mb-3 space-y-2">{resources.map(resource => {
+      const href = privateDriveLink(resource.url)
+      return <li key={resource.id} className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted">{resource.category}</span>
+        {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">{resource.title}</a> : <span>{resource.title}</span>}
+        <Button size="sm" disabled={pending} onClick={() => void saveList(resources.filter(r=>r.id!==resource.id))}>Remove link</Button>
+      </li>
+    })}</ul>
+    <form className="grid gap-2 sm:grid-cols-3" onSubmit={async event=>{
+      event.preventDefault()
+      const link = privateDriveLink(url.trim())
+      if (!link || !title.trim()) {setStatus('Enter a title and a Google Drive or Docs link.'); return}
+      if (await saveList([...resources, {id:uid(), title:title.trim(), url:link, category}])) {setTitle(''); setUrl('')}
+    }}>
+      <Field label="File type"><Select value={category} onChange={e=>setCategory(e.target.value)}>{RESOURCE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</Select></Field>
+      <Field label="Title"><Input value={title} maxLength={120} onChange={e=>setTitle(e.target.value)}/></Field>
+      <Field label="Google Drive link"><Input type="url" value={url} onChange={e=>setUrl(e.target.value)}/></Field>
+      <Button type="submit" size="sm" disabled={pending}>Add link</Button>
+    </form>
+    <p role="status" className="mt-2 text-sm">{status}</p>
+  </details>
+}
+
 export default function ClientPage() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -328,33 +387,35 @@ export default function ClientPage() {
   const saveClient = useStore((s) => s.saveClient)
   const deleteClient = useStore((s) => s.deleteClient)
   const [tab, setTab] = useState<'timeline' | 'progress' | 'targets'>('timeline')
-  const [modal, setModal] = useState<null | 'assessment' | 'session' | 'edit'>(null)
+  const [modal, setModal] = useState<null | 'session' | 'edit'>(null)
+  const [creatingHistory, setCreatingHistory] = useState(false)
+  const saveAssessment = useStore(s => s.saveAssessment)
   const [editing, setEditing] = useState<Session | undefined>()
-  const [context, setContext] = useState(client?.context ?? '')
   const [menu, setMenu] = useState(false)
-  const ctxTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clientRef = useRef(client)
-  clientRef.current = client
 
   useEffect(() => {
-    setContext(clientRef.current?.context ?? '')
     setTab('timeline')
     setMenu(false)
   }, [id])
 
   const assessments = useMemo(() => allAssessments.filter((a) => a.clientId === id), [allAssessments, id])
-  const sessions = useMemo(() => allSessions.filter((s) => s.clientId === id), [allSessions, id])
+  const sessions = useMemo(() => allSessions.filter((s) => s.clientId === id).sort((a,b) => b.date.localeCompare(a.date) || b.createdAt-a.createdAt), [allSessions, id])
   const rows = useMemo(() => (client ? assessments.map((a) => ({ a, an: analyse(a, client, settings) })) : []), [assessments, client, settings])
 
   if (!client) return <div className="p-8"><Empty icon="users" title="Client not found" action={<Button onClick={() => nav('/')}>Back to clients</Button>} /></div>
 
   const age = ageInMonths(client.dob, todayISO())
-  const onContext = (v: string) => {
-    setContext(v)
-    if (ctxTimer.current) clearTimeout(ctxTimer.current)
-    ctxTimer.current = setTimeout(() => clientRef.current && saveClient({ ...clientRef.current, context: v }), 600)
+  const startHistory = async () => {
+    setCreatingHistory(true)
+    const now = Date.now()
+    const assessment: Assessment = {
+      id: uid(), clientId: client.id, type: 'diary', title: '3-day food diary',
+      date: todayISO(), state: 'draft', createdAt: now, updatedAt: now,
+      days: Array.from({length: 3}, (_, i) => newDay(`Day ${i + 1}`, 'diary')),
+    }
+    if (await saveAssessment(assessment)) nav(`/c/${client.id}/a/${assessment.id}`)
+    setCreatingHistory(false)
   }
-
   type Entry = { date: string; at: number; s?: Session; r?: { a: Assessment; an: Analysis } }
   const entries: Entry[] = [...sessions.map((s) => ({ date: s.date, at: s.createdAt, s })), ...rows.map((r) => ({ date: r.a.date, at: r.a.createdAt, r }))].sort((x, y) => y.date.localeCompare(x.date) || y.at - x.at)
   const byDate: { date: string; items: Entry[] }[] = []
@@ -365,22 +426,26 @@ export default function ClientPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7">
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">{client.firstName}{client.archived && <span className="ml-2 align-middle text-[12px] font-medium text-muted">archived</span>}</h1>
+    <div className="app-page">
+      <div className="workspace-hero flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-line p-5 sm:p-7">
+        <div className="flex min-w-0 items-center gap-4">
+          <div aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-line bg-accent-wash text-xl font-semibold text-accent-ink">{client.firstName.slice(0, 1).toUpperCase()}</div>
+          <div className="min-w-0">
+          <h1 className="page-title truncate text-2xl font-semibold sm:text-3xl">{client.firstName}{client.archived && <span className="ml-2 align-middle text-[12px] font-medium text-muted">archived</span>}</h1>
           <p className="mt-0.5 text-[13.5px] text-ink-2">
             {formatAge(age)} · {client.sex === 'M' ? 'Boy' : 'Girl'} · born {formatDate(client.dob)}{client.feeding !== 'na' ? ` · ${FEEDING_LABEL[client.feeding]}` : ''} · <span className="tnum">{client.code}</span>
           </p>
+          </div>
         </div>
         <div className="relative flex flex-wrap items-center gap-2">
-          <Button variant="primary" icon="plus" onClick={() => setModal('assessment')}>Food history</Button>
-          <Button icon="note" onClick={() => (setEditing(undefined), setModal('session'))}>Session</Button>
+          <Button variant="primary" icon="plus" disabled={creatingHistory} onClick={startHistory}>Add food history</Button>
+          <Button icon="note" onClick={() => (setEditing(undefined), setModal('session'))}>Add session note</Button>
           <Button aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} aria-label="More actions">More <Icon name="chevronDown" size={14} /></Button>
           {menu && (
             <div role="menu" className="absolute top-full right-0 z-20 mt-1 w-56 rounded-lg border border-line bg-surface py-1 shadow-card" onMouseLeave={() => setMenu(false)}>
               {[
                 { icon: 'edit', label: 'Edit client details', fn: () => setModal('edit') },
+                { icon: 'download', label: 'Download client record (JSON)', fn: () => exportClientRecord(client, assessments, sessions) },
                 { icon: 'download', label: 'Export to Excel', fn: () => exportClientExcel(client, assessments, sessions, settings) },
                 { icon: 'users', label: client.archived ? 'Restore from archive' : 'Archive client', fn: () => saveClient({ ...client, archived: !client.archived }) },
                 { icon: 'trash', label: 'Delete client and all data', danger: true, fn: () => confirmDialog(`Permanently delete ${client.firstName} (${client.code}) with all food histories, sessions and notes? This cannot be undone.`) && (deleteClient(client.id), nav('/')) },
@@ -394,19 +459,22 @@ export default function ClientPage() {
         </div>
       </div>
 
-      <Card className="mt-4 p-3.5">
-        <label className="block">
-          <span className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-ink-2 uppercase"><Icon name="star" size={13} /> Key context</span>
-          <AutoTextarea value={context} onChange={onContext} minRows={2} placeholder="Allergies, diagnoses, medication, family situation, goals: anything that helps you interpret the numbers at a glance." className="border-transparent bg-transparent px-0 focus:border-transparent focus:ring-0" />
-        </label>
+      <div className="mt-5 grid items-start gap-4 xl:grid-cols-2">
+      <ClientContext key={`context-${client.id}`} client={client} />
+      <Card className="p-5">
+        <SectionTitle action={<Button size="sm" icon="plus" onClick={() => {setEditing(undefined); setModal('session')}}>Add session note</Button>}>Session notes</SectionTitle>
+        <p className="mb-3 text-sm text-ink-2">Record what the family reported, what you discussed and what to follow up. These notes stay in the client record.</p>
+        {sessions.length ? <SessionCard s={sessions[0]} client={client} onEdit={() => {setEditing(sessions[0]); setModal('session')}} /> : <p className="text-sm text-muted">No session notes yet.</p>}
+        {!!client.goals?.length && <details className="mt-3 text-sm"><summary>Previously recorded actions</summary><ul className="mt-2 list-disc pl-5">{client.goals.map(goal => <li key={goal.id}>{goal.text}{goal.due && ` · review ${goal.due}`}{goal.done && ' · completed'}{goal.outcome && ` · ${goal.outcome}`}</li>)}</ul></details>}
       </Card>
-
-      <Tabs className="mt-5 mb-4" value={tab} onChange={setTab} tabs={[{ id: 'timeline', label: 'Timeline', count: entries.length }, { id: 'progress', label: 'Progress' }, { id: 'targets', label: 'Targets' }]} />
+      </div>
+      <ClientResources key={`resources-${client.id}`} client={client} />
+      <Tabs className="mt-6 mb-5" value={tab} onChange={setTab} tabs={[{ id: 'timeline', label: 'Timeline', count: entries.length }, { id: 'progress', label: 'Progress' }, { id: 'targets', label: 'Targets' }]} />
 
       {tab === 'timeline' &&
         (entries.length === 0 ? (
           <Card>
-            <Empty icon="apple" title={`Start ${client.firstName}’s record`} action={<div className="flex gap-2"><Button variant="primary" icon="plus" onClick={() => setModal('assessment')}>Food history</Button><Button icon="note" onClick={() => setModal('session')}>Session</Button></div>}>
+            <Empty icon="apple" title={`Start ${client.firstName}’s record`} action={<div className="flex gap-2"><Button variant="primary" icon="plus" disabled={creatingHistory} onClick={startHistory}>Add food history</Button><Button icon="note" onClick={() => setModal('session')}>Add session note</Button></div>}>
               Enter a food history to analyse intake, or record a session with notes and measurements.
             </Empty>
           </Card>
@@ -425,7 +493,6 @@ export default function ClientPage() {
       {tab === 'progress' && <Progress client={client} rows={rows} sessions={sessions} panel={settings.panel} />}
       {tab === 'targets' && <Targets key={client.id} client={client} />}
 
-      {modal === 'assessment' && <NewAssessment client={client} onClose={() => setModal(null)} />}
       {modal === 'session' && <SessionForm client={client} session={editing} onClose={() => setModal(null)} />}
       {modal === 'edit' && <ClientForm client={client} onClose={() => setModal(null)} />}
     </div>

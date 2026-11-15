@@ -26,6 +26,7 @@ export interface AssessmentResult {
   /** per nutrient, foods ranked by average daily contribution */
   sources: Record<string, Contribution[]>
   /** ml per day */
+  formulaMl: number
   milkMl: number
   breastMilkMl: number
   breastMilkEstimated: boolean
@@ -88,6 +89,8 @@ export function foodOf(item: Item): Food | undefined {
       id: item.foodId,
       name: item.name,
       kind: item.snap.kind,
+      sourceFoodId: item.snap.sourceFoodId,
+      infantFormula: item.snap.infantFormula,
       group: '',
       per: item.snap.per,
       unit: item.unit,
@@ -121,7 +124,7 @@ function addItem(t: Totals, item: Item, sources?: Record<string, Map<string, Con
     const { v, lowEst } = rawValue(food, id)
     if (v == null) {
       // a supplement simply does not contain what its label does not list
-      if (food.kind !== 'supplement' && !tot.missing.includes(item.name)) tot.missing.push(item.name)
+      if (!tot.missing.includes(item.name)) tot.missing.push(item.name)
       continue
     }
     const x = (v * amount) / food.per
@@ -149,7 +152,7 @@ export function computeDay(day: Day): Totals {
 
 /** Average daily intake across the days that have at least one food recorded. */
 export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult {
-  const used = a.days.filter((d) => dayItems(d).some((i) => i.amount > 0))
+  const used = a.days.filter((d) => d.complete === true && !d.excluded)
   const n = used.length
   const avg = emptyTotals()
   const src: Record<string, Map<string, Contribution>> = {}
@@ -169,6 +172,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
       for (const m of t.missing) if (!a2.missing.includes(m)) a2.missing.push(m)
     }
   }
+  let formula = 0
   let milk = 0
   let bm = 0
   let bmEst = false
@@ -181,6 +185,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
       if (!food) continue
       const amt = dailyAmount(item) / n
       if (food.kind === 'supplement') supp = true
+      if (food.infantFormula) formula += food.unit === 'ml' ? amt : amt / (food.density ?? 1.03)
       if (item.foodId === BREAST_MILK_ID) {
         bm += amt / 1.03
         if (item.estimate) bmEst = true
@@ -192,6 +197,10 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
   const sources: Record<string, Contribution[]> = {}
   for (const id of CALC_IDS) sources[id] = [...src[id].values()].sort((x, y) => y.value - x.value)
 
+  const carbEnergy = used.reduce((sum,d) => sum + dayItems(d).reduce((subtotal,item) => {
+    const food = foodOf(item); const value = food ? rawValue(food, 'carb').v : null
+    return subtotal + (food && value != null ? value * dailyAmount(item) / food.per * ((food.sourceFoodId ?? item.foodId).startsWith('c:') ? 3.75 : 4) : 0)
+  },0),0) / (n || 1)
   const kcal = avg.energy.v
   const energyPct =
     kcal > 0
@@ -199,7 +208,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
           protein: (avg.protein.v * 4 * 100) / kcal,
           fat: (avg.fat.v * 9 * 100) / kcal,
           // CoFID carbohydrate is in monosaccharide equivalents: 3.75 kcal/g
-          carb: (avg.carb.v * 3.75 * 100) / kcal,
+          carb: (carbEnergy * 100) / kcal,
           satfat: (avg.satfat.v * 9 * 100) / kcal,
         }
       : null
@@ -209,6 +218,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
     days,
     avg,
     sources,
+    formulaMl: formula,
     milkMl: milk,
     breastMilkMl: bm,
     breastMilkEstimated: bmEst,

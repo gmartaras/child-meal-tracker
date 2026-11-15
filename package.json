@@ -7,26 +7,40 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run tests",
     "typecheck": "tsc --noEmit",
-    "data": "python3 scripts/build_cofid.py data-source/CoFID_2021.xlsx src/data/cofid.json"
+    "data": "python3 scripts/build_cofid.py data-source/CoFID_2021.xlsx src/data/cofid.json",
+    "test:e2e": "playwright test",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-mealtrace \"vitest run tests/rules.test.ts\""
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "firebase": "^13.3.0",
+    "jspdf": "^4.2.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",
     "write-excel-file": "^4.1.1",
+    "zod": "^4.6.7",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "firebase-tools": "^15.36.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
+  },
+  "engines": {
+    "node": ">=24.12.0"
   }
 }
