@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { uid } from '../domain/age'
 import { setCustomFoods } from '../domain/foods'
 import { CORE_IDS } from '../domain/nutrients'
+import { redactRecords } from '../domain/redact'
 import { DEFAULT_CHECKLIST, MEAL_NAMES, type Assessment, type Client, type CustomFood, type Session, type Settings } from '../domain/types'
 import { COLLS, createBackend, type AuthUser, type Backend, type Coll, type Doc } from './backend'
 
@@ -75,6 +76,8 @@ interface State {
   saveContext(id: string, value: string, previous: string): Promise<void>
   saveResources(client: Client, resources: NonNullable<Client["resources"]>): Promise<boolean>
   deleteClient(id: string): Promise<boolean>
+  /** remove notes and identifying details from every record; see domain/redact.ts */
+  redactAll(): Promise<{ clients: number; sessions: number; histories: number; locked: { id: string; clientId: string; title: string }[]; failed: number }>
   saveSession(s: Partial<Session> & { clientId: string; date: string }): Promise<boolean>
   deleteSession(id: string): void
   saveAssessment(a: Assessment): Promise<boolean>
@@ -279,6 +282,28 @@ export const useStore = create<State>((set, get) => {
       } finally {
         set({ pendingWrites: get().pendingWrites - 1 })
       }
+    },
+    async redactAll() {
+      const { clients, sessions, assessments } = get()
+      await Promise.all([...clientQueue.values()])
+      const r = redactRecords(clients, sessions, assessments)
+      let failed = 0
+      const now = Date.now()
+      for (const c of r.clients) {
+        const before = clients.find((x) => x.id === c.id)!
+        const doc = { ...c, updatedAt: Math.max(now, before.updatedAt + 1) }
+        if (await put('clients', doc, before.updatedAt)) lastClient.set(c.id, doc)
+        else failed++
+      }
+      for (const s of r.sessions) {
+        const before = sessions.find((x) => x.id === s.id)!
+        if (!(await put('sessions', { ...s, updatedAt: Math.max(now, before.updatedAt + 1) }, before.updatedAt))) failed++
+      }
+      for (const a of r.assessments) {
+        const before = assessments.find((x) => x.id === a.id)!
+        if (!(await put('assessments', { ...a, updatedAt: Math.max(now, before.updatedAt + 1) }, before.updatedAt))) failed++
+      }
+      return { clients: r.clients.length, sessions: r.sessions.length, histories: r.assessments.length, locked: r.locked.map((a) => ({ id: a.id, clientId: a.clientId, title: a.title })), failed }
     },
     async saveSession(sess) {
       const now = Date.now()

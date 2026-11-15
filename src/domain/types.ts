@@ -174,8 +174,21 @@ export interface Client {
   acceptedFoods?: AcceptedFood[]
   plan?: MealPlan
   sensory?: SensoryRecord
+  /** nutrient explorer: the food history used as a starting point, foods eaten regularly, and foods being tried */
+  explorer?: ExplorerState
   createdAt: number
   updatedAt: number
+}
+
+export interface ExplorerState {
+  /** food history id, or '' to start from nothing */
+  baseId: string
+  /** foods eaten regularly that are not in the food history, per day */
+  usual: Item[]
+  /** foods being considered for a plan, per day */
+  plan: Item[]
+  /** nutrient chosen in "Boost a nutrient" */
+  focus?: string
 }
 
 export const FOOD_GROUPS = [
@@ -271,6 +284,8 @@ export interface Settings {
   recents: string[]
   favourites: string[]
   lastBackupAt?: number
+  /** privacy steps the practitioner has marked done: step id -> date */
+  privacyDone?: Record<string, string>
   /** meal headings used for new food histories */
   mealNames?: string[]
   /** steps of the practice process ticked off per client */

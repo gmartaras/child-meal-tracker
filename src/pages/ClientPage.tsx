@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ClientForm, FEEDING_LABEL } from '../components/ClientForm'
-import { StatusChip } from '../components/analysis'
+import { MacroBar, StatusChip } from '../components/analysis'
+import { GapBars, GroupBar, LimitBars, StatTiles } from '../components/nutritionCharts'
+import { TrendChart, type TrendPoint } from '../components/TrendChart'
 import { Button, Card, Empty, Field, Icon, IconButton, Input, Modal, Select, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
 import { ageInMonths, formatAge, formatDate, todayISO, uid } from '../domain/age'
 import { TYPE_LABEL, analyse, type Analysis } from '../domain/analysis'
 import { statusOf } from '../domain/drv'
-import { fmt } from '../domain/nutrients'
-import { DEFAULT_CHECKLIST, SESSION_KINDS, type Assessment, type Client, type Session, type SessionSections } from '../domain/types'
+import { gapsOf, limitsOf, snapshotOf, type Snapshot } from '../domain/explore'
+import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
+import { DEFAULT_CHECKLIST, FOOD_GROUPS, SESSION_KINDS, type Assessment, type Client, type Session, type SessionSections } from '../domain/types'
 import { exportClientExcel, exportClientJson } from '../lib/export'
 import { useStore } from '../store/store'
 import { newAssessment } from './AssessmentPage'
 import { AcceptedFoods } from './client/AcceptedFoods'
+import { Explorer } from './client/Explorer'
 import { MealPlan } from './client/MealPlan'
-import { Progress } from './client/Progress'
 import { Sensory } from './client/Sensory'
 
-type Tab = 'overview' | 'sessions' | 'food' | 'accepted' | 'plan' | 'sensory' | 'progress'
+type Tab = 'overview' | 'nutrition' | 'sessions' | 'food' | 'accepted' | 'plan' | 'sensory'
 
 const SECTION_LABELS: [keyof SessionSections, string, string][] = [
   ['concerns', 'What the parents shared', 'Concerns, what has happened since last time, what is going well…'],
@@ -105,7 +108,7 @@ function SessionCard({ s, client, onEdit }: { s: Session; client: Client; onEdit
 }
 
 // ---------- food history card ----------
-function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analysis; panel: string[] }) {
+function AssessmentCard({ a, analysis, panel, provisional }: { a: Assessment; analysis: Analysis; panel: string[]; provisional?: boolean }) {
   const { result, targets } = analysis
   const flags = panel.filter((id) => targets[id] && id !== 'energy').map((id) => statusOf(result.avg[id], targets[id]))
   const low = flags.filter((f) => f === 'low').length
@@ -121,17 +124,127 @@ function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analy
         {result.nDays > 0 ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
             <span className="tnum"><span className="font-semibold">{result.avg.energy.missing.length ? '≥ ' : ''}{fmt(result.avg.energy.v, 0)}</span> kcal/day</span>
+            {provisional && <span className="text-warning-ink">includes unconfirmed days</span>}
             {low > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="low" compact /> {low} below LRNI</span>}
             {off > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="below" compact /> {off} outside target</span>}
             {!Object.keys(targets).length && <span>Reference values unavailable</span>}
             {!!Object.keys(targets).length && !low && !off && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
           </div>
         ) : (
-          <div className="mt-1 text-[12.5px] text-muted">No completed days yet</div>
+          <div className="mt-1 text-[12.5px] text-muted">No foods with amounts yet</div>
         )}
       </div>
       <Icon name="chevronRight" className="text-muted" />
     </Link>
+  )
+}
+
+// ---------- overview: nutrition at a glance ----------
+function NutritionSnapshot({ client, snaps, onExplore }: { client: Client; snaps: { a: Assessment; snap: Snapshot }[]; onExplore: (nutrient?: string) => void }) {
+  const panel = useStore((s) => s.settings.panel)
+  const latest = snaps[0]
+  if (!latest) {
+    return (
+      <Card className="p-5">
+        <h2 className="text-[13px] font-semibold">Nutrition</h2>
+        <p className="mt-1 text-[13px] text-ink-2">Enter a food history, or list the foods the child eats in the nutrient explorer, to see intake against UK reference values here.</p>
+        <Button size="sm" className="mt-3" icon="trend" onClick={() => onExplore()}>Open nutrient explorer</Button>
+      </Card>
+    )
+  }
+  const { analysis } = latest.snap
+  const gaps = gapsOf(analysis.result.avg, analysis.targets, panel)
+  const limits = limitsOf(analysis.result.avg, analysis.targets)
+  const n = (s: string) => gaps.filter((g) => g.status === s).length
+  const kcal = analysis.result.avg.energy.v
+  const ear = analysis.targets.energy?.value
+  const prev = snaps[1]
+  // trend lines for energy and the three nutrients furthest from target, across every analysable history
+  const series = snaps.slice().reverse()
+  const trendIds = ['energy', ...gaps.filter((g) => g.id !== 'energy').slice(0, 3).map((g) => g.id)]
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-[13px] font-semibold">Nutrition</h2>
+          <p className="text-[12px] text-ink-2">
+            <Link to={`/c/${client.id}/a/${latest.a.id}`} className="font-medium text-accent-ink hover:underline">{latest.a.title}</Link> · {formatDate(latest.a.date)} · average of {latest.snap.days} day{latest.snap.days === 1 ? '' : 's'}
+            {latest.snap.provisional && <span className="text-warning-ink"> · includes unconfirmed days</span>}
+          </p>
+        </div>
+        <Button size="sm" icon="trend" onClick={() => onExplore()}>Explore and plan</Button>
+      </div>
+      <StatTiles items={[
+        { label: 'Energy per day', value: fmt(kcal, 0), sub: ear ? `${fmt((kcal / ear) * 100, 0)}% of EAR (${ear} kcal)` : 'kcal' },
+        { label: 'Below LRNI', value: String(n('low')), sub: 'likely inadequate', tone: n('low') ? 'critical' : undefined },
+        { label: 'Below target', value: String(n('below')), sub: 'nutrients', tone: n('below') ? 'warning' : undefined },
+        { label: 'Meeting target', value: String(n('met')), sub: `of ${gaps.length} with a target`, tone: 'good' },
+      ]} />
+      <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div>
+          <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Furthest from target (select one to find foods that boost it)</h3>
+          <GapBars gaps={gaps} show={8} compact onSelect={(id) => onExplore(id)} />
+        </div>
+        <div className="space-y-4">
+          {analysis.result.energyPct && (
+            <div>
+              <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Where the energy comes from</h3>
+              <MacroBar pct={analysis.result.energyPct} />
+            </div>
+          )}
+          {limits.length > 0 && (
+            <div>
+              <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Keep below the maximum</h3>
+              <LimitBars limits={limits} />
+            </div>
+          )}
+          {gaps[0] && analysis.result.sources[gaps[0].id]?.length > 0 && (
+            <div>
+              <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Main sources of {gaps[0].label} now</h3>
+              <ul className="space-y-0.5 text-[12.5px]">
+                {analysis.result.sources[gaps[0].id].slice(0, 4).map((s) => <li key={s.name} className="flex justify-between gap-2"><span className="truncate">{s.name}</span><span className="tnum shrink-0 text-ink-2">{fmt((s.value / (analysis.result.avg[gaps[0].id].v || 1)) * 100, 0)}%</span></li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+      {series.length > 1 && (
+        <div className="mt-5">
+          <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Over time · % of target{prev ? ` · ${series.length} food histories` : ''}</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {trendIds.map((id) => {
+              const points: TrendPoint[] = series.filter((r) => r.snap.analysis.targets[id]).map((r) => ({ date: r.a.date, value: (r.snap.analysis.result.avg[id].v / r.snap.analysis.targets[id].value) * 100, note: `${r.a.title}${r.snap.provisional ? ' (unconfirmed days)' : ''}` }))
+              return points.length > 1 ? <TrendChart key={id} title={NUTRIENT_BY_ID[id]?.short ?? NUTRIENT_BY_ID[id]?.label ?? id} subtitle={id === 'energy' ? '% of EAR' : '% of target'} points={points} unit="%" reference={100} referenceLabel="target" height={120} /> : null
+            })}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function GrowthAndRange({ client, sessions }: { client: Client; sessions: Session[] }) {
+  const weights: TrendPoint[] = sessions.filter((s) => s.weightKg != null).map((s) => ({ date: s.date, value: s.weightKg!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
+  const heights: TrendPoint[] = sessions.filter((s) => s.heightCm != null).map((s) => ({ date: s.date, value: s.heightCm!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
+  const accepted = client.acceptedFoods ?? []
+  const groups = FOOD_GROUPS.slice(0, 5).map((label, i) => ({ label: label.replace(' (or fortified alternatives)', '').replace(', beans and other protein', ', beans'), count: accepted.filter((f) => f.group === i).length }))
+  return (
+    <>
+      <Card className="p-4">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="text-[13px] font-semibold">Accepted foods</h2>
+          <span className="tnum text-[12px] text-muted">{accepted.length} food{accepted.length === 1 ? '' : 's'}</span>
+        </div>
+        <GroupBar groups={groups} />
+      </Card>
+      {(weights.length > 0 || heights.length > 0) && (
+        <div className="grid gap-3">
+          {weights.length > 0 && <TrendChart title="Weight" points={weights} unit="kg" dp={2} height={120} />}
+          {heights.length > 0 && <TrendChart title="Length / height" points={heights} unit="cm" dp={1} height={120} />}
+          <p className="text-[11.5px] text-muted">Plotted as recorded in session notes. Use UK-WHO charts for centiles.</p>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -166,7 +279,7 @@ function KeyContext({ client }: { client: Client }) {
       </div>
       {editing ? (
         <>
-          <Textarea autoFocus rows={Math.max(4, text.split('\n').length + 1)} value={text} onChange={(e) => setText(e.target.value)} placeholder="Allergies, diagnoses, medication, family situation, nursery or school, goals…" />
+          <Textarea autoFocus rows={Math.max(4, text.split('\n').length + 1)} value={text} onChange={(e) => setText(e.target.value)} placeholder="Allergies, diagnoses, medication, goals… Leave out names and anything that identifies the family." />
           <div className="mt-2 flex justify-end gap-2">
             {problem && <span className="mr-auto text-[12.5px] text-critical-ink" role="alert">{problem}</span>}
             <Button size="sm" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button>
@@ -328,14 +441,26 @@ export default function ClientPage() {
   const [modal, setModal] = useState<null | 'session' | 'edit'>(null)
   const [editing, setEditing] = useState<Session | undefined>()
   const [menu, setMenu] = useState(false)
-  const tab = (params.get('tab') as Tab) || 'overview'
+  const asked = params.get('tab')
+  const tab: Tab = (['nutrition', 'sessions', 'food', 'accepted', 'plan', 'sensory'] as const).find((t) => t === asked) ?? 'overview'
   const setTab = (t: Tab) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })
 
   useEffect(() => setMenu(false), [id])
 
   const assessments = useMemo(() => allAssessments.filter((a) => a.clientId === id).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt), [allAssessments, id])
   const sessions = useMemo(() => allSessions.filter((s) => s.clientId === id).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt), [allSessions, id])
-  const rows = useMemo(() => (client ? assessments.map((a) => ({ a, an: analyse(a, client, settings) })) : []), [assessments, client, settings])
+  const rows = useMemo(() => (client ? assessments.map((a) => {
+    const snap = snapshotOf(a, client, settings)
+    return { a, an: snap?.analysis ?? analyse(a, client, settings), provisional: !!snap?.provisional }
+  }) : []), [assessments, client, settings])
+  const snaps = useMemo(() => (client ? assessments.filter((a) => !a.scenarioOf).flatMap((a) => {
+    const snap = snapshotOf(a, client, settings)
+    return snap ? [{ a, snap }] : []
+  }) : []), [assessments, client, settings])
+  const explore = (nutrient?: string) => {
+    if (nutrient && client) void patchClient(client.id, (latest) => ({ explorer: { baseId: snaps[0]?.a.id ?? '', usual: [], plan: [], ...latest.explorer, focus: nutrient } }))
+    setTab('nutrition')
+  }
 
   if (!client) return <div className="p-8"><Empty icon="users" title="Client not found" action={<Button onClick={() => nav('/')}>Back to clients</Button>} /></div>
 
@@ -346,8 +471,6 @@ export default function ClientPage() {
   }
   const newSession = () => (setEditing(undefined), setModal('session'))
   const latestActions = sessions.find((s) => s.sections?.actions)
-  const latestSession = sessions[0]
-  const latestFood = rows[0]
 
   const menuItems = [
     { icon: 'edit', label: 'Edit client details', fn: () => setModal('edit') },
@@ -383,8 +506,8 @@ export default function ClientPage() {
           </div>
         </div>
         <div className="relative flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="primary" icon="note" onClick={newSession}>Session notes</Button>
-          <Button size="sm" icon="apple" onClick={startHistory}>Food history</Button>
+          <Button size="sm" variant="primary" icon="apple" onClick={startHistory}>New food history</Button>
+          <Button size="sm" icon="note" onClick={newSession}>New session note</Button>
           {client.folderUrl && <a href={client.folderUrl} target="_blank" rel="noreferrer noopener"><Button size="sm" variant="ghost">Folder <Icon name="external" size={13} /></Button></a>}
           <IconButton icon="menu" label="More actions" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} />
           {menu && (
@@ -405,72 +528,40 @@ export default function ClientPage() {
         onChange={setTab}
         tabs={[
           { id: 'overview', label: 'Overview' },
-          { id: 'sessions', label: 'Session notes', count: sessions.length },
+          { id: 'nutrition', label: 'Nutrient explorer' },
           { id: 'food', label: 'Food histories', count: assessments.length },
+          { id: 'sessions', label: 'Session notes', count: sessions.length },
           { id: 'accepted', label: 'Accepted foods', count: client.acceptedFoods?.length ?? 0 },
-          { id: 'plan', label: 'Meal plan & chaining' },
-          { id: 'sensory', label: 'Sensory checklist' },
-          { id: 'progress', label: 'Progress' },
+          { id: 'plan', label: 'Meal plan' },
+          { id: 'sensory', label: 'Sensory' },
         ]}
       />
 
       {tab === 'overview' && (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <div className="space-y-4">
-            <KeyContext client={client} />
-            <Card className="p-4">
-              <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-[13px] font-semibold text-ink">Agreed actions{latestActions ? ` · ${formatDate(latestActions.date)}` : ''}</h2>
-                <button type="button" className="text-[12.5px] font-medium text-accent-ink hover:underline" onClick={() => setTab('sessions')}>All session notes</button>
-              </div>
-              {latestActions ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{latestActions.sections!.actions}</p> : <p className="text-[13px] text-muted">Actions agreed with the family in a session appear here.</p>}
-            </Card>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <NutritionSnapshot client={client} snaps={snaps} onExplore={explore} />
+            {latestActions && (
               <Card className="p-4">
-                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest session</h2>
-                {latestSession ? (
-                  <button type="button" className="block w-full text-left" onClick={() => setTab('sessions')}>
-                    <div className="text-[14px] font-medium">{formatDate(latestSession.date)} <span className="font-normal text-ink-2">· {latestSession.kind ?? 'Session'}</span></div>
-                    <p className="mt-1 line-clamp-3 text-[13px] text-ink-2">{latestSession.sections?.concerns || latestSession.sections?.observations || latestSession.note || 'No notes written.'}</p>
-                  </button>
-                ) : (
-                  <Button size="sm" icon="plus" onClick={newSession}>Write session notes</Button>
-                )}
-              </Card>
-              <Card className="p-4">
-                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest food history</h2>
-                {latestFood ? (
-                  <Link to={`/c/${client.id}/a/${latestFood.a.id}`} className="block">
-                    <div className="text-[14px] font-medium">{formatDate(latestFood.a.date)} <span className="font-normal text-ink-2">· {latestFood.a.title}</span></div>
-                    {latestFood.an.result.nDays > 0 ? (
-                      <p className="tnum mt-1 text-[13px] text-ink-2">
-                        {latestFood.an.result.avg.energy.missing.length ? '≥ ' : ''}{fmt(latestFood.an.result.avg.energy.v, 0)} kcal/day · {latestFood.an.insights.filter((i) => i.severity === 'critical').length} priority finding{latestFood.an.insights.filter((i) => i.severity === 'critical').length === 1 ? '' : 's'}
-                      </p>
-                    ) : <p className="mt-1 text-[13px] text-muted">No completed days yet</p>}
-                  </Link>
-                ) : (
-                  <Button size="sm" icon="plus" onClick={startHistory}>Enter a food history</Button>
-                )}
-              </Card>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <Checklist client={client} />
-            <RecordDetails client={client} onEdit={() => setModal('edit')} />
-            <ClientResources key={`resources-${client.id}`} client={client} />
-            {!!client.goals?.length && (
-              <Card className="p-4">
-                <details>
-                  <summary className="cursor-pointer font-semibold">Previously recorded actions</summary>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-                    {client.goals.map(goal => <li key={goal.id}>{goal.text}{goal.due && ` · review ${goal.due}`}{goal.done && ' · completed'}{goal.outcome && ` · ${goal.outcome}`}</li>)}
-                  </ul>
-                </details>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <h2 className="text-[13px] font-semibold text-ink">Agreed actions · {formatDate(latestActions.date)}</h2>
+                  <button type="button" className="text-[12.5px] font-medium text-accent-ink hover:underline" onClick={() => setTab('sessions')}>All session notes</button>
+                </div>
+                <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{latestActions.sections!.actions}</p>
               </Card>
             )}
           </div>
+          <div className="space-y-4">
+            <GrowthAndRange client={client} sessions={sessions} />
+            <Checklist client={client} />
+            <KeyContext client={client} />
+            <RecordDetails client={client} onEdit={() => setModal('edit')} />
+            {!!client.resources?.length && <ClientResources key={`resources-${client.id}`} client={client} />}
+          </div>
         </div>
       )}
+
+      {tab === 'nutrition' && <Explorer key={client.id} client={client} assessments={assessments} />}
 
       {tab === 'sessions' && (
         <div className="space-y-3">
@@ -482,14 +573,13 @@ export default function ClientPage() {
       {tab === 'food' && (
         <div className="space-y-2">
           <div className="flex justify-end"><Button size="sm" variant="primary" icon="plus" onClick={startHistory}>New food history</Button></div>
-          {rows.length === 0 ? <Card><Empty icon="apple" title="No food histories yet">Start one, paste in the family’s 3-day food history, and enter the foods to see intake against UK reference values.</Empty></Card> : rows.map((r) => <AssessmentCard key={r.a.id} a={r.a} analysis={r.an} panel={settings.panel} />)}
+          {rows.length === 0 ? <Card><Empty icon="apple" title="No food histories yet">Start one, paste in the family’s 3-day food history, and enter the foods to see intake against UK reference values.</Empty></Card> : rows.map((r) => <AssessmentCard key={r.a.id} a={r.a} analysis={r.an} panel={settings.panel} provisional={r.provisional} />)}
         </div>
       )}
 
       {tab === 'accepted' && <AcceptedFoods client={client} />}
       {tab === 'plan' && <MealPlan key={client.id} client={client} />}
       {tab === 'sensory' && <Sensory client={client} />}
-      {tab === 'progress' && <Progress client={client} rows={rows} sessions={sessions} panel={settings.panel} />}
 
       {modal === 'session' && <SessionForm client={client} session={editing} onClose={() => setModal(null)} />}
       {modal === 'edit' && <ClientForm client={client} onClose={() => setModal(null)} />}

@@ -11,3 +11,9 @@ The signed-in **Privacy & security** footer link opens the [practice guide](http
 - Recheck Firebase and Drive data flows and terms against the practice's records before updating the guide. Firebase Authentication is documented by Google as a US-hosted service. A London database does not establish the location of other processing.
 
 The production assessment covers app controls. The practice should collect its own dated evidence for account security, processor agreements and international transfers, the privacy notice, UK GDPR lawful bases, impact assessment, record retention, backup recovery, and the handling of rights requests, complaints and breaches.
+
+## Plain-language guide and privacy reset
+
+The in-app **Privacy & security** page (sidebar) explains, for the practitioner, how sign-in and Firebase work, who can see records (including the project owner's console access), and ten practice steps she can tick off with a date (stored in Settings as `privacyDone`).
+
+The same page has **Remove notes and names from all clients** (`redactRecords` in `src/domain/redact.ts`, `redactAll` in the store). It replaces first names with the client code and removes key context, session note text, food history notes and pasted diaries, imported document text, Drive links, legacy goals and sensory comments. It keeps date of birth, sex, milk feeding, foods and amounts, accepted foods, meal plans, sensory answers, dates, and weights and heights. Finalised food histories cannot be edited, so any that still hold old details in their snapshot are listed for review.

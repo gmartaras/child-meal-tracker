@@ -129,6 +129,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <ClientList onNavigate={() => setDrawer(false)} />
       <div className="border-t border-line p-2">
         <NavLink to="/settings" className={navItem}><Icon name="settings" /> Settings</NavLink>
+        <NavLink to="/privacy" className={navItem}><Icon name="lock" /> Privacy &amp; security</NavLink>
         <div className="mt-1 flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted">
           <Icon name={mode === 'cloud' ? 'cloud' : 'cloudOff'} size={14} className={mode === 'cloud' && synced ? 'text-good-ink' : ''} />
           <span className="min-w-0 flex-1 truncate" title={user?.email}>
@@ -153,9 +154,6 @@ export function Layout({ children }: { children: ReactNode }) {
         <header className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2 lg:hidden">
           <IconButton icon="menu" label="Open menu" onClick={() => setDrawer(true)} />
           <span className="text-[15px] font-semibold tracking-tight">Mealtrace</span>
-          <button type="button" onClick={() => setDrawer(true)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[13px] text-ink-2">
-            <Icon name="users" size={15} /> Clients
-          </button>
         </header>
         <main className="scroll-thin min-h-0 flex-1 overflow-y-auto">
           {(error || mode === 'local') && (
@@ -174,9 +172,7 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
           {children}
         </main>
-        <footer className="shrink-0 border-t border-line px-4 py-1.5 text-right">
-          <NavLink to="/privacy" className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline">Privacy &amp; security</NavLink>
-        </footer>
+
       </div>
     </div>
   )

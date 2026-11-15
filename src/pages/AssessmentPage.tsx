@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { FoodEditor } from '../components/FoodEditor'
 import { FoodSearch, type FoodSearchHandle } from '../components/FoodSearch'
-import { Headline, InsightList, MacroBar, NutrientTable, SourcesList } from '../components/analysis'
+import { InsightList, MacroBar, NutrientTable, SourcesList } from '../components/analysis'
+import { GapBars, LimitBars, StatTiles } from '../components/nutritionCharts'
+import { gapsOf, limitsOf, snapshotOf } from '../domain/explore'
 import { AutoTextarea, Button, Card, Field, Icon, IconButton, Input, Modal, SectionTitle, Segmented, Select, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
 import { ageInMonths, formatAge, uid } from '../domain/age'
 import { analyse, isUsual, previousAssessment } from '../domain/analysis'
-import { computeDay, dailyAmount, dayItems, foodOf, freqFactor, rawValue } from '../domain/calc'
+import { dailyAmount, dayItems, foodOf, freqFactor, rawValue } from '../domain/calc'
 import { BREAST_MILK_ID, getFood } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
-import { NUTRIENT_BY_ID, NUTRIENTS, fmt, fmtNutrient } from '../domain/nutrients'
+import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
 import { splitDiaryByDay } from '../domain/parse'
 import { MEAL_NAMES, type Assessment, type CustomFood, type Day, type Food, type Freq, type Item, type Measure } from '../domain/types'
 import { useStore } from '../store/store'
@@ -211,13 +213,9 @@ export default function AssessmentPage() {
 
   const [draft, setDraft] = useState<Assessment | null>(null)
   const [dayIdx, setDayIdx] = useState(0)
-  const [mealIndex, setMealIndex] = useState(0)
-  const [previewId, setPreviewId] = useState<string | null>(null)
   const [savingDay, setSavingDay] = useState(false)
   const chooseDay = (index: number) => {
     setDayIdx(index)
-    setMealIndex(0)
-    setPreviewId(null)
     setPane('entry')
   }
   const [focusId, setFocusId] = useState<string | null>(null)
@@ -309,6 +307,18 @@ export default function AssessmentPage() {
 
   const prev = useMemo(() => (draft ? previousAssessment(draft, all) : undefined), [draft, all])
   const analysis = useMemo(() => (draft && client ? analyse(draft, client, settings, prev) : null), [draft, client, settings, prev])
+  const [scope, setScope] = useState<'history' | 'day'>('history')
+  // what the results pane shows: the whole history (confirmed days, or every entered day while none is confirmed) or the open day
+  const live = useMemo(() => {
+    if (!draft || !client) return null
+    if (scope === 'day') {
+      const d = draft.days[Math.min(dayIdx, draft.days.length - 1)]
+      const one = analyse({ ...draft, state: 'draft', days: [{ ...d, complete: true, excluded: false }] }, client, settings)
+      return one.result.nDays && one.result.itemCount ? { analysis: one, provisional: !d.complete, days: 1 } : null
+    }
+    if (analysis && analysis.result.nDays > 0) return { analysis, provisional: false, days: analysis.result.nDays }
+    return snapshotOf(draft, client, settings)
+  }, [draft, client, settings, scope, dayIdx, analysis])
 
   if (!client) return <div className="p-8 text-ink-2">Client not found. <Link className="text-accent-ink underline" to="/">Back to clients</Link></div>
   if (!draft || !analysis) return <div className="p-8 text-ink-2">{stored === undefined ? 'Food history not found.' : 'Loading…'}</div>
@@ -368,10 +378,8 @@ export default function AssessmentPage() {
   const dayFoods = dayItems(day)
   const hasAmounts = dayFoods.some(i => !i.refused && i.amount > 0)
   const canConfirm = dayFoods.length > 0 && !missingQuantity(day)
-  const activeMeal = Math.min(mealIndex, day.meals.length - 1)
   const acceptedChoices = (client.acceptedFoods ?? []).filter((f, i, list) =>
     !!f.foodId && !!getFood(f.foodId) && list.findIndex(item => item.foodId === f.foodId) === i)
-  const previewTotals = previewId === day.id ? computeDay(day) : null
 
   const saveDay = async (action: 'confirm' | 'exclude' | 'include') => {
     if (locked || saveFailed || (action === 'confirm' && !canConfirm)) return
@@ -467,15 +475,6 @@ export default function AssessmentPage() {
     setPasting(false)
   }
 
-  const mealNav = (
-    day.meals.length > 0 && <nav className="scroll-thin flex gap-1 overflow-x-auto rounded-lg border border-line bg-surface-2 p-1" aria-label="Meals in order">
-        {day.meals.map((meal,index)=><button key={meal.id} type="button" aria-pressed={index===activeMeal}
-          onClick={()=>setMealIndex(index)}
-          className={cx('shrink-0 rounded-md px-2.5 py-2 text-xs font-medium',index===activeMeal ? 'bg-ink text-surface' : 'text-ink-2 hover:bg-surface')}>
-          {meal.name}{meal.items.length ? ` · ${meal.items.length}` : ''}
-        </button>)}
-      </nav>
-  )
   const dayNav = !usual && (
             <nav className="flex flex-wrap gap-1" aria-label="Diary days">
               {draft.days.map((d, i) => (
@@ -496,50 +495,36 @@ export default function AssessmentPage() {
             {draft.days.length > 1 && <IconButton icon="trash" label={`Delete ${day.label}`} onClick={() => removeDay(day)} />}
           </>
         )}
-        <Button size="sm" icon="note" className="ml-auto" onClick={() => setPasting(true)}>Paste parent’s diary</Button>
+        <Button size="sm" variant="ghost" className="ml-auto" disabled={!hasAmounts} onClick={() => {
+          const name = window.prompt('Name these foods to reuse them in other food histories')?.trim()
+          if (!name) return
+          const items = dayFoods.filter((item) => item.amount > 0).map((item) => {
+            const food = foodOf(item)
+            return food ? { ...item, snap: { kind: food.kind, labelSource: food.labelSource, sourceFoodId: food.sourceFoodId, infantFormula: food.infantFormula, per: food.per, values: { ...food.values } } } : item
+          })
+          saveMeals({ savedMeals: [...(useStore.getState().settings.savedMeals ?? []), { id: uid(), name, items }] })
+        }}>Save as reusable</Button>
+        <Button size="sm" icon="note" onClick={() => setPasting(true)}>Paste parent’s diary</Button>
       </div>
 
       {!usual && (
-        <input aria-label="Day label" value={day.label} onChange={(e) => mapDay(day.id, (d) => ({ ...d, label: e.target.value }))} placeholder="Day label, e.g. Day 1 · Saturday at home" className="h-8 w-full rounded-lg border border-transparent bg-transparent px-1 text-[13.5px] font-medium hover:border-line focus:border-accent focus:bg-surface focus:outline-none" />
-      )}
-
-      {!usual && draft.type === 'diary' && (
-        <Field label="Diary date (optional)">
-          <Input type="date" value={day.diaryDate ?? ''} onChange={e => mapDay(day.id, d => ({...d, diaryDate: e.target.value || undefined}))} />
-        </Field>
-      )}
-
-      <Card className="space-y-2 p-3.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cx('rounded-md px-2 py-1 text-xs font-semibold',day.complete && saved ? 'bg-good-wash text-good-ink' : 'bg-surface-2 text-ink-2')}>
-            {day.excluded ? 'Excluded from analysis' : day.complete ? (saved ? 'Confirmed in client record' : 'Confirmation pending') : 'Draft day'}
-          </span>
-          <Button size="sm" icon="trend" disabled={!hasAmounts} onClick={() => setPreviewId(previewId === day.id ? null : day.id)}>{previewId === day.id ? 'Hide analysis' : 'Analyse day'}</Button>
-          {!day.complete && !day.excluded && <Button size="sm" variant="primary" disabled={!canConfirm || saveFailed} onClick={() => void saveDay('confirm')}>Confirm and save day</Button>}
-          {!usual && !day.excluded && <Button size="sm" variant="ghost" disabled={saveFailed} onClick={() => void saveDay('exclude')}>Exclude day</Button>}
-          {day.excluded && <Button size="sm" disabled={saveFailed} onClick={() => void saveDay('include')}>Include as draft</Button>}
+          <input aria-label="Day label" value={day.label} onChange={(e) => mapDay(day.id, (d) => ({ ...d, label: e.target.value }))} placeholder="Day label, e.g. Day 1 · Saturday at home" className="h-8 min-w-[12rem] flex-1 rounded-lg border border-transparent bg-transparent px-1 text-[13.5px] font-medium hover:border-line focus:border-accent focus:bg-surface focus:outline-none" />
+          <input type="date" aria-label="Diary date" title="Date of this diary day (optional)" value={day.diaryDate ?? ''} onChange={(e) => mapDay(day.id, (d) => ({ ...d, diaryDate: e.target.value || undefined }))} className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] focus:border-accent focus:outline-none" />
         </div>
-        <p className="text-xs text-ink-2">
-          {day.excluded ? 'The entries are kept, but this day does not count towards the average.' :
-            day.complete ? 'Changing a food returns this day to draft so you can check and confirm the new amounts.' :
-            missingQuantity(day) ? 'Enter a quantity for each food or mark it as not eaten before confirming.' :
-            'Analyse recorded foods at any point. Confirm the day when the record is ready to count towards the average.'}
-        </p>
-        {previewTotals && <section className="rounded-lg border border-line bg-surface-2 p-3">
-          <h3 className="text-sm font-semibold">Recorded intake for {day.label}</h3>
-          <p className="mb-2 text-xs text-ink-2">Preview of entered amounts. It does not change the confirmed average.{missingQuantity(day) && " Foods without an amount are omitted."}{draft.unquantifiedBreastMilk && " Unquantified breast milk is omitted."}</p>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-            {NUTRIENTS.filter(n=>settings.panel.includes(n.id)).map(n=>{
-              const total = previewTotals[n.id]
-              if (!total) return null
-              return <div key={n.id} className="flex flex-wrap justify-between gap-x-1 text-xs">
-                <dt>{n.short ?? n.label}</dt>
-                <dd className="tnum">{total.missing.length && total.v === 0 ? 'Unknown' : `${total.missing.length || total.lowEst ? '≥ ' : ''}${fmtNutrient(n.id,total.v)} ${n.unit}`}</dd>
-              </div>
-            })}
-          </dl>
-        </section>}
-      </Card>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+        <span className={cx('rounded-md px-2 py-0.5 text-[12px] font-semibold', day.complete && saved ? 'bg-good-wash text-good-ink' : day.excluded ? 'bg-surface-2 text-muted' : 'bg-warning-wash text-warning-ink')}>
+          {day.excluded ? 'Excluded' : day.complete ? (saved ? 'Confirmed' : 'Confirming…') : 'Not confirmed'}
+        </span>
+        <span className="min-w-0 flex-1 text-[12px] text-ink-2">
+          {day.excluded ? 'Kept, but left out of the average.' : day.complete ? 'Counts towards the average. Editing a food unconfirms it.' : missingQuantity(day) ? 'Give every food an amount, or mark it not eaten, to confirm.' : 'Check the amounts, then confirm so the day counts.'}
+        </span>
+        {!day.complete && !day.excluded && <Button size="sm" variant="primary" disabled={!canConfirm || saveFailed} onClick={() => void saveDay('confirm')}>Confirm day</Button>}
+        {!usual && !day.excluded && <Button size="sm" variant="ghost" disabled={saveFailed} onClick={() => void saveDay('exclude')}>Exclude</Button>}
+        {day.excluded && <Button size="sm" disabled={saveFailed} onClick={() => void saveDay('include')}>Include</Button>}
+      </div>
 
       {day.source != null && (
         <Card className="border-accent/30 bg-accent-wash/40 p-3">
@@ -551,36 +536,7 @@ export default function AssessmentPage() {
         </Card>
       )}
 
-      <details className="rounded-xl border border-line bg-surface p-3">
-        <summary className="cursor-pointer text-sm font-semibold">Reusable meals</summary>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!day.meals.some(meal => meal.items.some(item => item.amount > 0))} onClick={() => {
-            const name = window.prompt('Name the foods from this day to reuse later')?.trim()
-            if (!name) return
-            const items = day.meals.flatMap(meal => meal.items).filter(item => item.amount > 0).map(item => {
-              const food = foodOf(item)
-              if (!food) return item
-              return {...item, snap: {
-                kind: food.kind, labelSource: food.labelSource, sourceFoodId: food.sourceFoodId, infantFormula: food.infantFormula,
-                per: food.per, values: {...food.values},
-              }}
-            })
-            const saved = useStore.getState().settings.savedMeals ?? []
-            saveMeals({savedMeals: [...saved, {id: uid(), name, items}]})
-          }}>Save foods as reusable meal</Button>
-          <Select className="w-auto" aria-label="Insert saved meal" value="" disabled={!day.meals.length} onChange={e => {
-            const savedMeal = settings.savedMeals?.find(meal => meal.id === e.target.value)
-            if (!savedMeal || !day.meals[0]) return
-            mapMeal(day.id, day.meals[0].id, items => [...items, ...savedMeal.items.map(item => ({...item, id: uid()}))])
-          }}>
-            <option value="">Insert into {day.meals[0]?.name.toLowerCase() ?? 'first meal'}…</option>
-            {settings.savedMeals?.map(meal => <option key={meal.id} value={meal.id}>{meal.name}</option>)}
-          </Select>
-        </div>
-      </details>
-
-      {!locked && mealNav}
-      {day.meals.filter((_, index) => index === activeMeal).map((meal) => {
+      {day.meals.map((meal) => {
         const mealKcal = meal.items.reduce((sum, it) => {
           const f = foodOf(it)
           const k = f ? rawValue(f, 'energy').v : null
@@ -613,13 +569,22 @@ export default function AssessmentPage() {
               </div>
             )}
             <div className={cx('px-3 pb-3', meal.items.length ? 'border-t border-line pt-3' : 'pt-1')}>
-              {acceptedChoices.length > 0 && <Select aria-label={`Add an accepted food to ${meal.name}`} value="" className="mb-2" onChange={e=>{
-                const food = getFood(e.target.value)
-                if (food) addFood(day.id, meal.id, food)
-              }}>
-                <option value="">Choose from accepted foods…</option>
-                {acceptedChoices.map(f=><option key={f.id} value={f.foodId}>{f.name}</option>)}
-              </Select>}
+              {(acceptedChoices.length > 0 || !!settings.savedMeals?.length) && <div className="mb-2 flex flex-wrap gap-2">
+                {acceptedChoices.length > 0 && <Select aria-label={`Add an accepted food to ${meal.name}`} value="" className="h-8 w-auto min-w-0 flex-1 py-0 text-[12.5px]" onChange={e=>{
+                  const food = getFood(e.target.value)
+                  if (food) addFood(day.id, meal.id, food)
+                }}>
+                  <option value="">Accepted foods…</option>
+                  {acceptedChoices.map(f=><option key={f.id} value={f.foodId}>{f.name}</option>)}
+                </Select>}
+                {!!settings.savedMeals?.length && <Select aria-label={`Insert a reusable meal into ${meal.name}`} value="" className="h-8 w-auto min-w-0 flex-1 py-0 text-[12.5px]" onChange={e => {
+                  const savedMeal = settings.savedMeals?.find(m => m.id === e.target.value)
+                  if (savedMeal) mapMeal(day.id, meal.id, items => [...items, ...savedMeal.items.map(item => ({...item, id: uid()}))])
+                }}>
+                  <option value="">Reusable meals…</option>
+                  {settings.savedMeals.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </Select>}
+              </div>}
               <FoodSearch
                 ref={(h) => {
                   searchRefs.current[meal.id] = h
@@ -632,10 +597,6 @@ export default function AssessmentPage() {
           </Card>
         )
       })}
-      {activeMeal >= 0 && <div className="flex flex-wrap justify-between gap-2">
-        {activeMeal > 0 && <Button size="sm" icon="arrowLeft" onClick={()=>setMealIndex(activeMeal-1)}>{day.meals[activeMeal-1].name}</Button>}
-        {activeMeal < day.meals.length-1 && <Button className="ml-auto" size="sm" icon="chevronRight" onClick={()=>setMealIndex(activeMeal+1)}>Next: {day.meals[activeMeal+1].name}</Button>}
-      </div>}
       <Card className="p-3">
         <Field label="Notes on this food history">
           <AutoTextarea value={draft.note ?? ''} onChange={(v) => update((a) => ({ ...a, note: v }))} placeholder="Who reported it, how typical the days were, anything that affects interpretation…" />
@@ -657,7 +618,6 @@ export default function AssessmentPage() {
           ) : (
             <>
               <Button size="sm" onClick={() => void copyAs({ amendmentOf: draft.id })}>Create amendment</Button>
-              <Button size="sm" onClick={() => void copyAs({ scenarioOf: draft.id, title: 'Scenario: ' + draft.title })}>What-if scenario</Button>
               <Button size="sm" variant="ghost" onClick={() => window.open(`${window.location.pathname}${window.location.search}#/c/${client.id}/family/${draft.id}`, '_blank', 'noopener')}>Family view</Button>
             </>
           )}
@@ -674,41 +634,67 @@ export default function AssessmentPage() {
       </Field>
     </Card>
   )
-  const results =
-    analysis.result.nDays === 0 ? (
-      <div className="space-y-3">{review}<Card className="p-6 text-center text-[13px] text-ink-2">Confirm a day to include it in the client’s intake analysis. Use Analyse day to preview entered amounts at any point.</Card></div>
-    ) : (
-      <div className="space-y-3">
-        {review}
-        <Card className="p-4">
-          <Headline analysis={analysis} panel={settings.panel} />
-          {analysis.result.energyPct && (
-            <div className="mt-4">
-              <div className="mb-1.5 text-[12px] text-ink-2">Where the energy comes from</div>
-              <MacroBar pct={analysis.result.energyPct} />
+  const shown = live?.analysis
+  const gaps = shown ? gapsOf(shown.result.avg, shown.targets, settings.panel) : []
+  const limits = shown ? limitsOf(shown.result.avg, shown.targets) : []
+  const count = (s: string) => gaps.filter((g) => g.status === s).length
+  const ear = shown?.targets.energy?.value
+  const results = (
+    <div className="space-y-3">
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[14px] font-semibold">Nutrition</h2>
+          {!usual && <Segmented value={scope} onChange={setScope} options={[{ id: 'history', label: 'Whole history' }, { id: 'day', label: `${day.label.split(' · ')[0]} only` }]} />}
+        </div>
+        {!shown ? (
+          <p className="text-[13px] text-ink-2">Add foods with amounts and the analysis appears here straight away.</p>
+        ) : (
+          <>
+            <StatTiles items={[
+              { label: 'Energy per day', value: `${shown.result.avg.energy.missing.length ? '≥ ' : ''}${fmt(shown.result.avg.energy.v, 0)}`, sub: ear ? `${fmt((shown.result.avg.energy.v / ear) * 100, 0)}% of EAR (${ear} kcal)` : 'kcal' },
+              { label: 'Below LRNI', value: String(count('low')), sub: 'likely inadequate', tone: count('low') ? 'critical' : undefined },
+              { label: 'Below target', value: String(count('below')), sub: 'nutrients', tone: count('below') ? 'warning' : undefined },
+              { label: 'Meeting target', value: String(count('met')), sub: `of ${gaps.length}`, tone: 'good' },
+            ]} />
+            <p className="mt-2 text-[12px] text-muted">
+              {scope === 'day' ? `${day.label}${day.complete ? '' : ', not yet confirmed'}` : usual ? 'Estimated daily average from usual intake' : `Average of ${live!.days} day${live!.days === 1 ? '' : 's'}`}
+              {scope === 'history' && live!.provisional && <span className="text-warning-ink"> · includes unconfirmed days, so it may change</span>}
+              {profileIncomplete ? ' · reference values need date of birth and sex' : ` · UK reference values for ${formatAge(ageMonths)}, ${client.sex === 'M' ? 'boy' : 'girl'}`}
+            </p>
+            <h3 className="mt-4 mb-1.5 text-[12px] font-medium text-ink-2">Furthest from target · select a nutrient to see where it comes from</h3>
+            <GapBars gaps={gaps} show={10} selected={sel} onSelect={setSelected} />
+            {sel && (
+              <div className="mt-4 rounded-lg border border-line p-3">
+                <h3 className="mb-2 text-[12.5px] font-semibold">Where {NUTRIENT_BY_ID[sel].short ?? NUTRIENT_BY_ID[sel].label} comes from</h3>
+                <SourcesList result={shown.result} nutrient={sel} limit={6} />
+                <Link to={`/c/${client.id}?tab=nutrition`} onClick={() => { void flush(); void useStore.getState().patchClient(client.id, (c) => ({ explorer: { usual: [], plan: [], ...c.explorer, baseId: draft.id, focus: sel } })) }} className="mt-2 inline-block text-[12.5px] font-medium text-accent-ink hover:underline">Find foods that boost it</Link>
+              </div>
+            )}
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {shown.result.energyPct && <div><h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Where the energy comes from</h3><MacroBar pct={shown.result.energyPct} /></div>}
+              {limits.length > 0 && <div><h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Keep below the maximum</h3><LimitBars limits={limits} /></div>}
             </div>
-          )}
-          <p className="mt-3 text-[12px] text-muted">
-            {usual ? 'Estimated daily average from usual intake' : `Average of ${analysis.result.nDays} recorded day${analysis.result.nDays === 1 ? '' : 's'}`}{profileIncomplete ? ' · reference values need date of birth and sex' : ` · reference values for ${formatAge(ageMonths)}, ${client.sex === 'M' ? 'boy' : 'girl'}`}
-          </p>
-        </Card>
+          </>
+        )}
+      </Card>
+      {shown && shown.insights.length > 0 && (
         <Card className="p-4">
           <SectionTitle>Insights</SectionTitle>
-          <InsightList insights={analysis.insights} onSelect={setSelected} />
+          <InsightList insights={shown.insights} onSelect={setSelected} />
         </Card>
-        <Card className="p-4">
-          <SectionTitle>Daily intake against reference values</SectionTitle>
-          <NutrientTable result={analysis.result} targets={analysis.targets} panel={settings.panel} selected={sel} onSelect={setSelected} />
-          <p className="mt-2 text-[12px] text-muted">Select a nutrient to see which foods provide it. “≥” marks a minimum: some foods eaten have no value for that nutrient in the food data.</p>
-        </Card>
-        {sel && (
-          <Card className="p-4">
-            <SectionTitle>Top sources of {(NUTRIENT_BY_ID[sel].short ?? NUTRIENT_BY_ID[sel].label).toLowerCase()}</SectionTitle>
-            <SourcesList result={analysis.result} nutrient={sel} />
-          </Card>
-        )}
-      </div>
-    )
+      )}
+      {shown && (
+        <details className="rounded-xl border border-line bg-surface px-4 py-3">
+          <summary className="cursor-pointer text-[13px] font-semibold">Full nutrient table</summary>
+          <div className="mt-3">
+            <NutrientTable result={shown.result} targets={shown.targets} panel={settings.panel} selected={sel} onSelect={setSelected} />
+            <p className="mt-2 text-[12px] text-muted">“≥” marks a minimum: some foods eaten have no value for that nutrient in the food data.</p>
+          </div>
+        </details>
+      )}
+      {review}
+    </div>
+  )
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-3 sm:px-6">
@@ -741,9 +727,9 @@ export default function AssessmentPage() {
         <span className="text-[12.5px] text-ink-2">{usual ? 'One typical day as the family describes it. Set how often for foods not eaten every day; everything is scaled to a daily average.' : 'What was actually eaten on each recorded day. The days are averaged.'}</span>
       </div>
 
-      <Tabs className="mb-3 lg:hidden" value={pane} onChange={setPane} tabs={[{ id: 'entry', label: 'Food entry', count: analysis.result.itemCount }, { id: 'analysis', label: 'Review & finalise' }]} />
+      <Tabs className="mb-3 lg:hidden" value={pane} onChange={setPane} tabs={[{ id: 'entry', label: 'Foods', count: analysis.result.itemCount || undefined }, { id: 'analysis', label: 'Nutrition' }]} />
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <div className={cx(pane === 'entry' ? 'block' : 'hidden', 'lg:block')}><div className="mb-3 space-y-2">{dayNav}{locked && mealNav}</div><fieldset disabled={locked} className="min-w-0">{entry}</fieldset></div>
+        <div className={cx(pane === 'entry' ? 'block' : 'hidden', 'lg:block')}><div className="mb-3 space-y-2">{dayNav}</div><fieldset disabled={locked} className="min-w-0">{entry}</fieldset></div>
         <div className={cx(pane === 'analysis' ? 'block' : 'hidden', 'scroll-thin lg:sticky lg:top-3 lg:block lg:max-h-[calc(100dvh-1.5rem)] lg:self-start lg:overflow-y-auto lg:pr-1')}>{results}</div>
       </div>
 
