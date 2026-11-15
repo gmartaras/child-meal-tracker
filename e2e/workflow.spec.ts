@@ -1,4 +1,19 @@
 import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+
+test('requires a passphrase and downloads an encrypted workspace backup', async ({ page }) => {
+  await page.goto('/?demo=1#/settings')
+  const download = page.getByRole('button', {name:'Download encrypted backup'})
+  await expect(download).toBeDisabled()
+  await page.getByLabel('Password for the backup file').fill('short')
+  await expect(download).toBeDisabled()
+  await page.getByLabel('Password for the backup file').fill('synthetic secure example')
+  const [file] = await Promise.all([page.waitForEvent('download'), download.click()])
+  const backup = JSON.parse(await readFile(await file.path(), 'utf8'))
+  expect(backup.encrypted).toBe(true)
+  expect(backup.data).toBeTruthy()
+  expect(backup.clients).toBeUndefined()
+})
 
 test('opens the practice privacy guide from the footer on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

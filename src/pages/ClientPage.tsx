@@ -351,14 +351,20 @@ export default function ClientPage() {
 
   const menuItems = [
     { icon: 'edit', label: 'Edit client details', fn: () => setModal('edit') },
-    { icon: 'download', label: 'Export to Excel', fn: () => (logAudit('export', `${client.code} to Excel`), exportClientExcel(client, assessments, sessions, settings)) },
-    { icon: 'download', label: 'Export full record (data request)', fn: () => (logAudit('export', `${client.code} full record`), exportClientJson(client, assessments, sessions)) },
+    { icon: 'download', label: 'Export to Excel', fn: async () => {
+      await exportClientExcel(client, assessments, sessions, settings)
+      void logAudit('export')
+    } },
+    { icon: 'download', label: 'Export full record (data request)', fn: () => {
+      exportClientJson(client, assessments, sessions)
+      void logAudit('export')
+    } },
     { icon: 'users', label: client.archived ? 'Restore from archive' : 'Archive client', fn: () => void patchClient(client.id, { archived: !client.archived }) },
     { icon: 'trash', label: 'Delete client and all data', danger: true, fn: async () => {
       const label = client.firstName === client.code ? client.code : `${client.firstName} (${client.code})`
       if (!confirmDialog(`Permanently delete ${label} with all food histories, sessions and notes? This cannot be undone.`)) return
       if (await deleteClient(client.id)) {
-        logAudit('erase', client.code)
+        void logAudit('erase')
         nav('/')
       }
     } },

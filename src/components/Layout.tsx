@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { ageInMonths, formatAge, todayISO } from '../domain/age'
-import { useStore } from '../store/store'
+import { inactivityMinutes, useStore } from '../store/store'
 import { ClientForm } from './ClientForm'
 import { CommandPalette } from './CommandPalette'
 import { Banner, Icon, IconButton, cx } from './ui'
@@ -75,26 +75,32 @@ export function Layout({ children }: { children: ReactNode }) {
   const practice = useStore((s) => s.settings.practiceName)
   const loc = useLocation()
   const isReport = /\/(report|print|family)\//.test(loc.pathname)
-  const autoLockMin = useStore((s) => s.settings.autoLockMin) ?? 30
+  const autoLockMin = useStore((s) => inactivityMinutes(s.settings.autoLockMin))
   const logAudit = useStore((s) => s.logAudit)
 
   // Sign out after a period without any activity, so an unattended device does not stay open on client records.
   useEffect(() => {
-    if (mode !== 'cloud' || !(autoLockMin > 0)) return
+    if (mode !== 'cloud') return
     let last = Date.now()
-    const touch = () => {
-      last = Date.now()
+    let signedOut = false
+    const check = () => {
+      if (signedOut || Date.now() - last < autoLockMin * 60_000) return signedOut
+      signedOut = true
+      // Do not let logging or a failed save keep an unattended session open.
+      const audit = logAudit('auto-sign-out')
+      void Promise.race([audit, new Promise(resolve => window.setTimeout(resolve, 750))]).then(() => signOut(true))
+      return true
     }
-    const events = ['pointerdown', 'keydown', 'scroll', 'visibilitychange'] as const
+    const touch = () => {
+      if (!check()) last = Date.now()
+    }
+    const events = ['pointerdown', 'keydown', 'scroll'] as const
     events.forEach((e) => window.addEventListener(e, touch, { passive: true, capture: true }))
-    const timer = setInterval(() => {
-      if (Date.now() - last > autoLockMin * 60_000) {
-        logAudit('auto-sign-out', `after ${autoLockMin} minutes without activity`)
-        void signOut()
-      }
-    }, 20_000)
+    document.addEventListener('visibilitychange', check)
+    const timer = setInterval(check, 1000)
     return () => {
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', check)
       events.forEach((e) => window.removeEventListener(e, touch, { capture: true }))
     }
   }, [mode, autoLockMin, signOut, logAudit])

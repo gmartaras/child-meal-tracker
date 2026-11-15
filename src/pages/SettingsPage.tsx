@@ -5,9 +5,9 @@ import { BANDS, ENERGY_CHILD, ENERGY_INFANT, LRNI, RNI, SALT_MAX } from '../doma
 import { cofidCount, cofidVersion, getFood } from '../domain/foods'
 import { GROUP_ORDER, NUTRIENTS, NUTRIENT_BY_ID } from '../domain/nutrients'
 import { DEFAULT_CHECKLIST, MEAL_NAMES, type BreastMilkSettings } from '../domain/types'
-import { downloadBackup, readBackup } from '../lib/export'
+import { downloadBackup, MIN_BACKUP_PASSWORD_LENGTH, readBackup } from '../lib/export'
 import { cloudConfigured } from '../store/backend'
-import { DEFAULT_SETTINGS, useStore } from '../store/store'
+import { DEFAULT_SETTINGS, inactivityMinutes, MAX_INACTIVITY_MINUTES, useStore } from '../store/store'
 
 function Section({ title, intro, children, id }: { title: string; intro?: ReactNode; children: ReactNode; id?: string }) {
   return (
@@ -86,19 +86,22 @@ export default function SettingsPage() {
       const data = await readBackup(await f.text(), () => window.prompt('This backup is encrypted. Enter its password:'))
       if (!confirmDialog(`Restore ${data.clients?.length ?? 0} clients and ${data.assessments?.length ?? 0} food histories from this backup (${data.exportedAt?.slice(0, 10)})? Records with the same ID are overwritten; nothing else is deleted.`)) return
       const n = await importBackup(data)
-      logAudit('restore', `${n} records from backup dated ${data.exportedAt?.slice(0, 10)}`)
+      void logAudit('restore')
       setMsg(`Restored ${n} records.`)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Could not read that file.')
     }
   }
   const onBackup = async () => {
-    if (!password && !confirmDialog('Download the backup WITHOUT a password? Anyone who gets the file could read the client records. Cancel to go back and set a password.')) return
-    await downloadBackup(exportBackup(), password || undefined)
-    logAudit('backup', password ? 'encrypted backup downloaded' : 'unencrypted backup downloaded')
-    update({ lastBackupAt: Date.now() })
-    setPassword('')
-    setMsg(password ? 'Encrypted backup downloaded. Keep the password somewhere safe: without it the file cannot be opened.' : 'Backup downloaded.')
+    try {
+      await downloadBackup(exportBackup(), password)
+      void logAudit('backup')
+      update({ lastBackupAt: Date.now() })
+      setPassword('')
+      setMsg('Encrypted backup downloaded. Keep the passphrase separately so you can restore the file.')
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Could not download the backup.')
+    }
   }
   const onLogo = (f: File) => {
     if (f.size > 300_000) return setMsg('Please choose a logo under 300 KB.')
@@ -224,8 +227,8 @@ export default function SettingsPage() {
         <Section id="backup" title="Backup and restore" intro="Download a complete copy of your records as one file. Set a password and the file is encrypted, so it is safe to keep on a drive or in cloud storage.">
           <p className="mb-3 text-[13px] text-ink-2">Currently stored: {counts}.{settings.lastBackupAt ? ` Last backup downloaded ${new Date(settings.lastBackupAt).toLocaleDateString('en-GB')}.` : ' No backup downloaded yet.'}</p>
           <div className="flex flex-wrap items-end gap-2">
-            <Field label="Password for the backup file" className="w-64"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="at least 10 characters" /></Field>
-            <Button variant="primary" icon="download" disabled={password.length > 0 && password.length < 10} onClick={onBackup}>Download {password ? 'encrypted ' : ''}backup</Button>
+            <Field label="Password for the backup file" className="w-64"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder={`At least ${MIN_BACKUP_PASSWORD_LENGTH} characters`} /></Field>
+            <Button variant="primary" icon="download" disabled={password.trim().length < MIN_BACKUP_PASSWORD_LENGTH} onClick={onBackup}>Download encrypted backup</Button>
             <input ref={file} type="file" accept="application/json,.json" className="hidden" onChange={(e) => (e.target.files?.[0] && onRestore(e.target.files[0]), (e.target.value = ''))} />
             <Button icon="upload" onClick={() => file.current?.click()}>Restore from a backup file</Button>
           </div>
@@ -240,8 +243,12 @@ export default function SettingsPage() {
             <Banner tone="warning">{cloudConfigured ? 'Cloud storage is configured but not active.' : 'Cloud storage is not connected, so data lives only in this browser and these controls have no effect yet.'}</Banner>
           )}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Field label="Sign out automatically after (minutes)" hint="With no clicks or typing. 0 switches this off.">
-              <Input key={settings.autoLockMin} inputMode="numeric" className="tnum w-28" defaultValue={settings.autoLockMin ?? 30} onBlur={(e) => { const x = parseInt(e.target.value); update({ autoLockMin: isFinite(x) && x >= 0 ? x : 30 }) }} />
+            <Field label="Sign out automatically after (minutes)" hint={`Choose 1 to ${MAX_INACTIVITY_MINUTES} minutes. Check that edits are saved before leaving the app.`}>
+              <Input type="number" min={1} max={MAX_INACTIVITY_MINUTES} inputMode="numeric" className="tnum w-28" defaultValue={inactivityMinutes(settings.autoLockMin)} onBlur={(e) => {
+                const limit = inactivityMinutes(e.target.valueAsNumber)
+                e.target.value = String(limit)
+                if (limit !== settings.autoLockMin) update({ autoLockMin: limit })
+              }} />
             </Field>
             <div className="rounded-lg border border-line p-3 text-[13px]"><span className="font-medium">Clinical record cache</span><span className="mt-0.5 block text-[12.5px] text-ink-2">{mode === 'cloud' ? 'The cloud app caches records in memory while the tab is open. Manage downloaded and printed copies separately.' : 'Trial mode stores its records in this browser. Use synthetic records here.'}</span></div>
           </div>
@@ -265,12 +272,12 @@ export default function SettingsPage() {
           </ul>
           <details className="mt-3">
             <summary className="text-[13px] font-medium text-accent-ink">Access log ({audit.length})</summary>
-            <p className="mt-1 text-[12px] text-muted">{mode === 'cloud' ? 'The current production rules do not record in-app access events. Review audit evidence outside Mealtrace.' : 'Trial events are for testing only.'}</p>
+            <p className="mt-1 text-[12px] text-muted">{mode === 'cloud' ? 'Recent sign-ins, exports, backups, restores, deletions and inactivity sign-outs for this account. These app events do not include client details, individual reads or Google Cloud administrator activity.' : 'Trial mode does not record access events.'}</p>
             <Card className="mt-2 max-h-64 overflow-y-auto">
               <table className="tnum w-full text-[12.5px]">
                 <tbody className="divide-y divide-line">
-                  {audit.slice(0, 200).map((a) => <tr key={a.id}><td className="px-3 py-1 whitespace-nowrap text-ink-2">{new Date(a.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</td><td className="px-3 py-1 font-medium">{a.action}</td><td className="px-3 py-1 text-ink-2">{a.detail}</td></tr>)}
-                  {!audit.length && <tr><td className="px-3 py-2 text-muted">Nothing logged yet.</td></tr>}
+                  {audit.slice(0, 200).map((a) => <tr key={a.id}><td className="px-3 py-1 whitespace-nowrap text-ink-2">{new Date(a.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</td><td className="px-3 py-1 font-medium">{a.action}</td></tr>)}
+                  {!audit.length && <tr><td colSpan={2} className="px-3 py-2 text-muted">Nothing logged yet.</td></tr>}
                 </tbody>
               </table>
             </Card>

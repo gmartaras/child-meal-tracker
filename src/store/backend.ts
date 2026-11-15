@@ -119,6 +119,8 @@ async function cloudBackend(): Promise<Backend> {
   ])
   const app = initializeApp(cfg)
   const a = auth.getAuth(app)
+  // Migrate any existing browser-wide sign-in to this tab's session.
+  await auth.setPersistence(a, auth.browserSessionPersistence).catch(() => auth.setPersistence(a, auth.inMemoryPersistence))
   // Records are held in memory only: nothing is written to this device's disk, and closing the tab clears them.
   const db = fs.initializeFirestore(app, {
     localCache: fs.memoryLocalCache(),
@@ -153,8 +155,10 @@ async function cloudBackend(): Promise<Backend> {
       window.location.reload()
     },
     watch(coll, cb, onError) {
+      const collection = path(coll)
+      const source = coll === 'audit' ? fs.query(collection, fs.orderBy('at', 'desc'), fs.limit(200)) : collection
       return fs.onSnapshot(
-        path(coll),
+        source,
         { includeMetadataChanges: true },
         (snap) => cb(snap.docs.map((d) => {
           const data = d.data()

@@ -24,5 +24,13 @@ service cloud.firestore {
           && (resource.data.get('state', '') != 'finalised'
             || clientDeletedTogether(uid, resource.data.clientId))));
     }
+    match /users/{uid}/audit/{recordId} {
+      allow read: if authorised(uid);
+      allow create: if authorised(uid)
+        && request.resource.data.keys().hasOnly(['id', 'at', 'action'])
+        && request.resource.data.id == recordId
+        && request.resource.data.at is int
+        && request.resource.data.action in ['sign-in', 'export', 'erase', 'backup', 'restore', 'auto-sign-out'];
+    }
   }
 }

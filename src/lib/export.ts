@@ -93,10 +93,12 @@ export interface EncryptedBackup {
   data: string
 }
 
-/** Download every record as one file. With a password the file is encrypted (AES-256-GCM) and unreadable without it. */
-export async function downloadBackup(b: Backup, password?: string): Promise<void> {
+export const MIN_BACKUP_PASSWORD_LENGTH = 12
+
+/** Download the whole workspace as an encrypted AES-256-GCM backup. */
+export async function downloadBackup(b: Backup, password: string): Promise<void> {
+  if (password.trim().length < MIN_BACKUP_PASSWORD_LENGTH) throw new Error(`Use a backup passphrase of at least ${MIN_BACKUP_PASSWORD_LENGTH} characters.`)
   const name = `mealtrace-backup-${b.exportedAt.slice(0, 10)}`
-  if (!password) return downloadBlob(new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' }), `${name}.json`)
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, await keyFrom(password, salt), new TextEncoder().encode(JSON.stringify(b)))

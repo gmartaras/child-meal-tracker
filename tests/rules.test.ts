@@ -64,3 +64,17 @@ run('round-trips the sample meal plan through Firestore', async () => {
   const frozen = (await getDoc(assessment)).data()!
   expect(decodeClientPlan(frozen.snapshot.client.plan)).toEqual(plan)
 })
+
+run('keeps operational events per account and prevents client details and edits', async () => {
+  const db = env.authenticatedContext('dietitian', {email:'practitioner@example.invalid', email_verified:true}).firestore()
+  const other = env.authenticatedContext('developer', {email:'developer@example.invalid', email_verified:true}).firestore()
+  const path = 'users/dietitian/audit/backup'
+  const event = doc(db, path)
+  const data = {id:event.id, at:1, action:'backup'}
+  await assertFails(setDoc(event, {...data, detail:'sensitive content'}))
+  await assertSucceeds(setDoc(event, data))
+  await assertSucceeds(getDoc(event))
+  await assertFails(getDoc(doc(other, path)))
+  await assertFails(setDoc(event, {...data, action:'erase'}))
+  await assertFails(deleteDoc(event))
+})

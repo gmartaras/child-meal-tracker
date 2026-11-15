@@ -6,6 +6,14 @@ import { CORE_IDS } from '../domain/nutrients'
 import { DEFAULT_CHECKLIST, MEAL_NAMES, type Assessment, type Client, type CustomFood, type Session, type Settings } from '../domain/types'
 import { COLLS, createBackend, type AuthUser, type Backend, type Coll, type Doc } from './backend'
 
+export const MAX_INACTIVITY_MINUTES = 30
+
+export function inactivityMinutes(value: number | undefined): number {
+  return value && Number.isFinite(value) && value >= 1
+    ? Math.min(MAX_INACTIVITY_MINUTES, Math.floor(value))
+    : MAX_INACTIVITY_MINUTES
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   id: 'settings',
   practiceName: '',
@@ -19,7 +27,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nextClientNo: 1,
   mealNames: [...MEAL_NAMES],
   checklist: [...DEFAULT_CHECKLIST],
-  autoLockMin: 30,
+  autoLockMin: MAX_INACTIVITY_MINUTES,
   retentionAge: 25,
   updatedAt: 0,
 }
@@ -28,7 +36,6 @@ export interface AuditEntry {
   id: string
   at: number
   action: 'sign-in' | 'export' | 'erase' | 'backup' | 'restore' | 'auto-sign-out'
-  detail: string
 }
 
 export interface Backup {
@@ -56,10 +63,10 @@ interface State {
   audit: AuditEntry[]
   settings: Settings
   /** append to the access log: who exported, erased or restored what, and when (no clinical content) */
-  logAudit(action: AuditEntry['action'], detail: string): void
+  logAudit(action: AuditEntry['action']): Promise<void>
   init(): Promise<void>
   signIn(): Promise<void>
-  signOut(): Promise<void>
+  signOut(automatic?: boolean): Promise<void>
   saveClient(c: Partial<Client> & { firstName: string; dob: string }): Client
   /** Change some fields of a client. Patches are applied one after another on top of the latest saved record, so quick successive edits never overwrite each other. */
   /** Pass a function when the change depends on current values (e.g. toggling one checklist item):
@@ -165,9 +172,10 @@ export const useStore = create<State>((set, get) => {
     audit: [],
     settings: DEFAULT_SETTINGS,
 
-    logAudit(action, detail) {
-      const entry: AuditEntry = { id: uid(), at: Date.now(), action, detail }
-      backend?.put('audit', entry).catch(() => {})
+    async logAudit(action) {
+      if (backend?.mode !== 'cloud') return
+      const entry: AuditEntry = { id: uid(), at: Date.now(), action }
+      await backend.put('audit', entry).catch(() => {})
     },
 
     async init() {
@@ -183,7 +191,7 @@ export const useStore = create<State>((set, get) => {
         if (user) {
           set({ user, phase: 'loading' })
           startWatching()
-          if (backend!.mode === 'cloud') get().logAudit('sign-in', navigator.userAgent.replace(/\s*\(.*?\)/, '').slice(0, 80))
+          void get().logAudit('sign-in')
         } else {
           unsubs.forEach((u) => u())
           unsubs = []
@@ -199,8 +207,8 @@ export const useStore = create<State>((set, get) => {
         if (!/popup-closed|cancelled-popup/.test(msg)) fail(e)
       }
     },
-    async signOut() {
-      if (get().pendingWrites || get().error) {fail(new Error("Resolve pending or failed saves before signing out.")); return}
+    async signOut(automatic = false) {
+      if (!automatic && (get().pendingWrites || get().error)) {fail(new Error("Resolve pending or failed saves before signing out.")); return}
       await backend?.signOut()
     },
 

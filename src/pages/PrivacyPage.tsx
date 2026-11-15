@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Card } from '../components/ui'
 
 const ico = 'https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/'
-const code = 'https://github.com/gmartaras/child-meal-tracker/blob/7fbd7b21db489bac77f8ca719a70eeee209ae677/'
+const code = 'https://github.com/gmartaras/child-meal-tracker/blob/main/'
 
 function Source({ href, children }: { href: string; children: ReactNode }) {
   return <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline underline-offset-2">{children}</a>
@@ -34,12 +34,12 @@ export default function PrivacyPage() {
         <dl className="space-y-3">
           <div>
             <dt className="font-semibold text-ink">Access and separation</dt>
-            <dd>Google sign-in and Firestore require a verified, approved account. Client records are scoped to that account’s user ID. The published rules matched the tested source after removing email addresses. Tests cover signed-out and unverified access, cross-account isolation, and deletion of a client with finalised records. Direct access through Google Cloud IAM is a separate control.</dd>
+            <dd>Google sign-in and Firestore require a verified, approved account. Client records are scoped to that account’s user ID. The published rules matched the tested source after removing email addresses. Tests cover signed-out and unverified access, cross-account isolation, append-only app events, and deletion of a client with finalised records. Direct access through Google Cloud IAM is a separate control.</dd>
             <dd><Source href={code + 'firestore.rules'}>Rules source</Source> · <Source href={code + 'tests/rules.test.ts'}>Rules tests</Source></dd>
           </div>
           <div>
             <dt className="font-semibold text-ink">Storage, devices and tracking</dt>
-            <dd>The configured Firestore database is in London (europe-west2). Google documents encryption in transit and at rest for Firestore. The live site served HTTPS with HSTS and anti-framing headers. Clinical records use Firestore’s memory cache in the production app. Google sign-in can retain authentication state in the browser after a tab closes. Downloads and printouts create separate copies. The app has an adjustable inactivity sign-out and no integrated analytics, advertising or AI service.</dd>
+            <dd>The configured Firestore database is in London (europe-west2). Google documents encryption in transit and at rest for Firestore. The live site served HTTPS with HSTS and anti-framing headers. Clinical records use Firestore’s memory cache in the production app. Sign-in is scoped to the browser tab session. Inactivity sign-out is enforced after at most 30 minutes. Check that edits have saved before leaving the app. Downloads and printouts create separate copies. Mealtrace has no integrated analytics, advertising or AI service.</dd>
             <dd><Source href={code + 'src/store/backend.ts'}>Storage code</Source> · <Source href={code + 'firebase.json'}>Hosting configuration</Source> · <Source href="https://firebase.google.com/support/privacy">Google’s Firebase security and location details</Source> · <Source href="https://firebase.google.com/docs/auth/web/auth-state-persistence">Sign-in persistence</Source></dd>
           </div>
           <div>
@@ -51,9 +51,9 @@ export default function PrivacyPage() {
 
       <GuideSection title="Three priorities for Katarina">
         <ol className="list-decimal space-y-3 pl-5">
-          <li><strong>Review project control and privileged access.</strong> The IAM check found one individual project owner. Katarina’s account did not hold that role. Agree who should control the project and recovery account, review the developer’s access and record why it is needed. Check two-step verification and device screen locks. The live app’s access log is disabled. Agree what access and changes the practice needs to be able to investigate and how that evidence will be kept. <Source href="https://console.cloud.google.com/iam-admin/iam?project=childmealtracker">Review project access</Source></li>
+          <li><strong>Review project control and privileged access.</strong> The IAM check found one individual project owner. Katarina’s account did not hold that role. Agree who should control the project and recovery account, review the developer’s access and record why it is needed. Check two-step verification and device screen locks. The app has an account-scoped, append-only log of selected events without client details. It does not track individual record reads or Google Cloud administrator actions. Document how long to retain it and what additional evidence the practice needs. <Source href="https://console.cloud.google.com/iam-admin/iam?project=childmealtracker">Review project access</Source></li>
           <li><strong>Document Google’s role and data transfers.</strong> Google states that Firebase Authentication runs from US data centres. Review the applicable agreements separately for Firebase and the Drive account, record where each service processes data, and document any required UK transfer mechanism and risk assessment. Check Drive recipients and sharing settings and keep identifiable material out of public links. <Source href="https://firebase.google.com/terms/data-processing-terms/">Firebase processing terms</Source> · <Source href="https://workspace.google.com/terms/dpa_terms.html">Google Workspace processing terms</Source> · <Source href={ico + 'international-transfers/a-guide-to-international-transfers/'}>ICO transfer guidance</Source></li>
-          <li><strong>Prove you can recover the records.</strong> There were no scheduled Firestore backups and point-in-time recovery and database deletion protection were off at the live check. Agree a recovery schedule, run a password-encrypted backup in Settings, and test recovery in a separate controlled environment. Keep the password separately and manage backup retention. An unpassworded backup, Excel export, JSON export or PDF needs protection wherever it is stored or sent. <Link to="/settings" className="text-accent-ink underline">Open Settings</Link> · <Source href={code + 'src/lib/export.ts'}>Backup and export code</Source></li>
+          <li><strong>Prove you can recover the records.</strong> Whole-database deletion protection is enabled. Scheduled backups and point-in-time recovery require billing and are off. Set a recovery schedule, download an encrypted backup in Settings, and test a restore in a separate controlled environment. Keep the passphrase separately and apply the retention policy to the file. Protect older plaintext backups, Excel and JSON client exports and PDFs wherever they are stored or sent. <Link to="/settings" className="text-accent-ink underline">Open Settings</Link> · <Source href={code + 'src/lib/export.ts'}>Backup and export code</Source></li>
         </ol>
       </GuideSection>
 
