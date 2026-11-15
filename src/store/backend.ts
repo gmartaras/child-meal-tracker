@@ -4,6 +4,8 @@
  *  - local: this browser's localStorage only. A try-it-out mode; data is NOT backed up or synced.
  */
 import firebaseConfig from '../../firebase.config.json'
+import { decodeClientPlan, encodeClientPlan } from './clientPlanStorage'
+import type { Client } from '../domain/types'
 
 export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta' | 'audit'
 export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta', 'audit']
@@ -144,7 +146,12 @@ async function cloudBackend(): Promise<Backend> {
       return fs.onSnapshot(
         path(coll),
         { includeMetadataChanges: true },
-        (snap) => cb(snap.docs.map((d) => ({ ...(d.data() as Doc), id: d.id })), snap.metadata.fromCache || snap.metadata.hasPendingWrites),
+        (snap) => cb(snap.docs.map((d) => {
+          const data = d.data()
+          return coll === 'clients' && data.plan
+            ? { ...data, plan: decodeClientPlan(data.plan), id: d.id }
+            : { ...data, id: d.id }
+        }), snap.metadata.fromCache || snap.metadata.hasPendingWrites),
         (e) => onError(e),
       )
     },
@@ -155,7 +162,8 @@ async function cloudBackend(): Promise<Backend> {
         const current = await tx.get(ref)
         if (current.exists() && current.data().state === 'finalised') throw new Error('Finalised record is immutable')
         if (current.exists() && expected !== undefined && current.data().updatedAt !== expected) throw new Error('Record changed elsewhere. Reload before retrying.')
-        tx.set(ref, doc)
+        const plan = coll === 'clients' ? (doc as Client).plan : undefined
+        tx.set(ref, plan ? { ...doc, plan: encodeClientPlan(plan) } : doc)
       })
     },
     async saveContext(id, value, previous) {
