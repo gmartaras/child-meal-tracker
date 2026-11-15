@@ -3,21 +3,21 @@
 /* Semantic tokens. Chart colours are a validated colour-blind-safe set; do not swap ad hoc. */
 :root {
   color-scheme: light;
-  --bg: #fafafa;
+  --bg: #f5f7f9;
   --surface: #ffffff;
-  --surface-2: #f4f4f5;
-  --ink: #09090b;
-  --ink-2: #3f3f46;
-  --muted: #71717a;
-  --line: #e9e9ec;
-  --line-strong: #d4d4d8;
-  --accent: #3b6fd4;
-  --accent-ink: #2a56ad;
-  --accent-wash: #eef3fd;
+  --surface-2: #edf1f5;
+  --ink: #172738;
+  --ink-2: #3e5062;
+  --muted: #526478;
+  --line: #dce3eb;
+  --line-strong: #c5cfdb;
+  --accent: #33556f;
+  --accent-ink: #25455e;
+  --accent-wash: #e9eff5;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
-  --track: #ececef;
+  --track: #e5ebf1;
   --good: #0ca30c;
   --good-ink: #006300;
   --warning: #fab219;
@@ -33,21 +33,21 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.print-light) {
     color-scheme: dark;
-    --bg: #09090b;
-    --surface: #131316;
-    --surface-2: #1c1c20;
-    --ink: #fafafa;
-    --ink-2: #c4c4cc;
-    --muted: #8e8e99;
-    --line: #232329;
-    --line-strong: #33333b;
-    --accent: #3987e5;
-    --accent-ink: #86b6ef;
-    --accent-wash: #152036;
+    --bg: #101821;
+    --surface: #17212c;
+    --surface-2: #202d3a;
+    --ink: #f3f6f9;
+    --ink-2: #c4d0db;
+    --muted: #9aaabc;
+    --line: #304050;
+    --line-strong: #42566a;
+    --accent: #a1bad0;
+    --accent-ink: #bad0e3;
+    --accent-wash: #263a4c;
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
-    --track: #26262c;
+    --track: #2b3a49;
     --good: #0ca30c;
     --good-ink: #5fce5f;
     --warning: #fab219;
