@@ -65,7 +65,7 @@ export function NutrientTable({ result, targets, panel, selected, onSelect }: { 
         if (!rows.length) return null
         return (
           <div key={g} className="mb-3 last:mb-0">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">{g}</div>
+            <div className="mb-1 text-[12px] font-medium text-muted">{g}</div>
             <div className="divide-y divide-line rounded-lg border border-line">
               {rows.map((n) => {
                 const tot = result.avg[n.id]

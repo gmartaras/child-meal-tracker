@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AutoTextarea, Button, Card, IconButton, Input, SectionTitle } from '../../components/ui'
+import { AutoTextarea, Button, Card, Icon, IconButton, Input, SectionTitle } from '../../components/ui'
 import { uid } from '../../domain/age'
 import { PLAN_DAYS, PLAN_SLOTS, type Client, type MealPlan as Plan } from '../../domain/types'
 import { useStore } from '../../store/store'
@@ -83,7 +83,7 @@ export function MealPlan({ client }: { client: Client }) {
             {plan.chains.map((c) => (
               <div key={c.id} className="grid grid-cols-[1fr_auto_1.6fr_auto] items-center gap-2 px-3 py-2">
                 <Input list="accepted-foods" value={c.from} placeholder="Accepted food" aria-label="Accepted food" onChange={(e) => change({ ...plan, chains: plan.chains.map((x) => (x.id === c.id ? { ...x, from: e.target.value } : x)) })} className="h-8" />
-                <span className="text-muted" aria-hidden="true">→</span>
+                <Icon name="arrowRight" size={14} className="text-muted" />
                 <Input value={c.to} placeholder="Next step to offer, and how" aria-label="Next step" onChange={(e) => change({ ...plan, chains: plan.chains.map((x) => (x.id === c.id ? { ...x, to: e.target.value } : x)) })} className="h-8" />
                 <IconButton icon="trash" label="Remove this chain" onClick={() => change({ ...plan, chains: plan.chains.filter((x) => x.id !== c.id) })} />
               </div>

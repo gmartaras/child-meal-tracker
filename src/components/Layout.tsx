@@ -1,31 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { ageInMonths, formatAge, todayISO } from '../domain/age'
 import { useStore } from '../store/store'
 import { ClientForm } from './ClientForm'
+import { CommandPalette } from './CommandPalette'
 import { Banner, Icon, IconButton, cx } from './ui'
 
 function ClientList({ onNavigate }: { onNavigate: () => void }) {
   const clients = useStore((s) => s.clients)
   const id = useLocation().pathname.match(/^\/c\/([^/]+)/)?.[1]
   const nav = useNavigate()
-  const [q, setQ] = useState('')
+  const q = ''
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
   const today = todayISO()
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        input.current?.focus()
-        input.current?.select()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
 
   const list = useMemo(() => {
     const t = q.trim().toLowerCase()
@@ -39,29 +27,14 @@ function ClientList({ onNavigate }: { onNavigate: () => void }) {
   return (
     <>
       <div className="px-3">
-        <div className="relative">
-          <Icon name="search" size={15} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted" />
-          <input
-            ref={input}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && list[0]) {
-                nav(`/c/${list[0].id}`)
-                setQ('')
-                onNavigate()
-                ;(e.target as HTMLInputElement).blur()
-              }
-            }}
-            placeholder="Find a client"
-            aria-label="Find a client (Ctrl or ⌘ + K)"
-            className="h-9 w-full rounded-lg border border-line bg-surface pr-10 pl-8 text-sm placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/25 focus:outline-none"
-          />
-          <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border border-line px-1 text-[10px] text-muted lg:block">⌘K</kbd>
-        </div>
+        <button type="button" onClick={() => window.dispatchEvent(new Event('mealtrace:palette'))} className="flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 text-left text-[13px] text-muted hover:border-line-strong">
+          <Icon name="search" size={15} />
+          <span className="flex-1">Search…</span>
+          <kbd className="rounded border border-line px-1 text-[10px]">⌘K</kbd>
+        </button>
       </div>
       <div className="mt-3 flex items-center justify-between px-4">
-        <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Clients · {list.length}</span>
+        <span className="text-[12px] font-medium text-muted">Clients · {list.length}</span>
         <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-medium text-accent-ink hover:bg-accent-wash">
           <Icon name="plus" size={13} /> New
         </button>
@@ -72,7 +45,7 @@ function ClientList({ onNavigate }: { onNavigate: () => void }) {
             key={c.id}
             to={`/c/${c.id}`}
             onClick={onNavigate}
-            className={cx('flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5', id === c.id ? 'bg-surface font-medium shadow-sm ring-1 ring-line' : 'hover:bg-surface/70', c.archived && 'opacity-60')}
+            className={cx('flex items-baseline justify-between gap-2 rounded-lg px-2 py-1.5', id === c.id ? 'bg-surface-2 font-medium' : 'hover:bg-surface-2/60', c.archived && 'opacity-60')}
           >
             <span className="truncate text-[13.5px]">{c.firstName}</span>
             <span className="shrink-0 text-[11.5px] text-muted">{formatAge(ageInMonths(c.dob, today))} · {c.code}</span>
@@ -86,6 +59,7 @@ function ClientList({ onNavigate }: { onNavigate: () => void }) {
         )}
       </nav>
       {adding && <ClientForm onClose={() => setAdding(false)} onSaved={(c) => (nav(`/c/${c.id}`), onNavigate())} />}
+      <CommandPalette onNewClient={() => setAdding(true)} />
     </>
   )
 }
@@ -128,10 +102,10 @@ export function Layout({ children }: { children: ReactNode }) {
 
   if (isReport) return <>{children}</>
 
-  const navItem = ({ isActive }: { isActive: boolean }) => cx('flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px]', isActive ? 'bg-surface font-medium shadow-sm ring-1 ring-line' : 'text-ink-2 hover:bg-surface/70 hover:text-ink')
+  const navItem = ({ isActive }: { isActive: boolean }) => cx('flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13.5px]', isActive ? 'bg-surface-2 font-medium text-ink' : 'text-ink-2 hover:bg-surface-2/60 hover:text-ink')
 
   const sidebar = (
-    <div className="flex h-full flex-col bg-surface-2/60">
+    <div className="flex h-full flex-col bg-bg">
       <div className="flex items-center gap-2 px-4 pt-4 pb-3">
         <NavLink to="/" className="flex min-w-0 items-center gap-2">
           <img src="./icon.svg" alt="" className="h-7 w-7 rounded-lg" />

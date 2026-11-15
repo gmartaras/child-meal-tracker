@@ -3,21 +3,21 @@
 /* Semantic tokens. Chart colours are a validated colour-blind-safe set; do not swap ad hoc. */
 :root {
   color-scheme: light;
-  --bg: #f6f5f2;
-  --surface: #fcfcfb;
-  --surface-2: #f0efeb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --muted: #898781;
-  --line: #e1e0d9;
-  --line-strong: #c3c2b7;
-  --accent: #2a78d6;
-  --accent-ink: #1c5cab;
-  --accent-wash: #e6f0fc;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --ink: #09090b;
+  --ink-2: #3f3f46;
+  --muted: #71717a;
+  --line: #e9e9ec;
+  --line-strong: #d4d4d8;
+  --accent: #3b6fd4;
+  --accent-ink: #2a56ad;
+  --accent-wash: #eef3fd;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
-  --track: #e6e5df;
+  --track: #ececef;
   --good: #0ca30c;
   --good-ink: #006300;
   --warning: #fab219;
@@ -27,27 +27,27 @@
   --good-wash: #e7f6e7;
   --warning-wash: #fdf2d6;
   --critical-wash: #fbe9e9;
-  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.06);
+  --shadow: 0 0 0 1px rgba(9, 9, 11, 0.04), 0 12px 32px -8px rgba(9, 9, 11, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.print-light) {
     color-scheme: dark;
-    --bg: #0d0d0d;
-    --surface: #1a1a19;
-    --surface-2: #242423;
-    --ink: #f0efec;
-    --ink-2: #c3c2b7;
-    --muted: #898781;
-    --line: #2c2c2a;
-    --line-strong: #383835;
+    --bg: #09090b;
+    --surface: #131316;
+    --surface-2: #1c1c20;
+    --ink: #fafafa;
+    --ink-2: #c4c4cc;
+    --muted: #8e8e99;
+    --line: #232329;
+    --line-strong: #33333b;
     --accent: #3987e5;
     --accent-ink: #86b6ef;
-    --accent-wash: #16263a;
+    --accent-wash: #152036;
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
-    --track: #2c2c2a;
+    --track: #26262c;
     --good: #0ca30c;
     --good-ink: #5fce5f;
     --warning: #fab219;
@@ -57,7 +57,7 @@
     --good-wash: #13281a;
     --warning-wash: #2e2610;
     --critical-wash: #2e1616;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
   }
 }
 
@@ -86,7 +86,7 @@
   --color-critical: var(--critical);
   --color-critical-ink: var(--critical-ink);
   --color-critical-wash: var(--critical-wash);
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: Inter, 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --shadow-card: var(--shadow);
 }
 
@@ -103,10 +103,28 @@ body {
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.006em;
   -webkit-text-size-adjust: 100%;
 }
 * {
   -webkit-tap-highlight-color: transparent;
+}
+h1,
+h2 {
+  letter-spacing: -0.02em;
+}
+button,
+a,
+input,
+select,
+textarea {
+  transition: background-color 150ms, border-color 150ms, color 150ms, box-shadow 150ms, transform 100ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }
 button,
 [role='button'],

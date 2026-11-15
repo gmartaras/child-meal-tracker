@@ -78,20 +78,20 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         )}
         <Button size="sm" icon="copy" onClick={() => onEdit({ type: 'version', sourceId: food.id })}>Make a version</Button>
         {food.edited && <Button size="sm" onClick={() => confirmDialog(`Put “${orig?.name}” back to the original CoFID values?`) && deleteFood(overrideDocId(food.id))}>Revert to original</Button>}
-        <Button size="sm" variant="ghost" onClick={() => update({ favourites: isFav ? settings.favourites.filter((x) => x !== food.id) : [...settings.favourites, food.id] })}>{isFav ? '★ Favourite' : '☆ Favourite'}</Button>
+        <Button size="sm" variant="ghost" onClick={() => update({ favourites: isFav ? settings.favourites.filter((x) => x !== food.id) : [...settings.favourites, food.id] })}><Icon name="star" size={14} filled={isFav} className={isFav ? 'text-warning' : ''} /> {isFav ? 'Favourite' : 'Add to favourites'}</Button>
         {!isCofid && custom && <Button size="sm" variant="ghost" icon="trash" className="ml-auto" onClick={() => confirmDialog(`Delete “${food.name}”? Food histories that already use it keep their saved values.`) && (deleteFood(custom.id), onClose())}>Delete</Button>}
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {custom?.recipe && (
           <div className="mb-4">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">Ingredients · makes {custom.recipe.portions} portion{custom.recipe.portions === 1 ? '' : 's'}</div>
+            <div className="mb-1 text-[12px] font-medium text-muted">Ingredients · makes {custom.recipe.portions} portion{custom.recipe.portions === 1 ? '' : 's'}</div>
             <ul className="text-[13px]">
               {custom.recipe.ingredients.map((i) => <li key={i.id} className="flex justify-between gap-3 py-0.5"><span className="truncate">{i.name}</span><span className="tnum shrink-0 text-ink-2">{fmt(i.amount, i.amount < 10 ? 1 : 0)} {i.unit}</span></li>)}
             </ul>
           </div>
         )}
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Nutrients per {food.per === 1 ? food.unit : `100 ${food.unit}`}</span>
+          <span className="text-[12px] font-medium text-muted">Nutrients per {food.per === 1 ? food.unit : `100 ${food.unit}`}</span>
           <button type="button" className="text-[12px] text-accent-ink hover:underline" onClick={() => setAll(!all)}>{all ? 'My panel only' : 'All nutrients'}</button>
         </div>
         {GROUP_ORDER.map((g) => {
@@ -119,7 +119,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         })}
         {food.per !== 1 && (
           <div className="mt-4">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">Portion sizes offered when logging</div>
+            <div className="mb-1 text-[12px] font-medium text-muted">Portion sizes offered when logging</div>
             {measures.length === 0 && <p className="text-[12.5px] text-ink-2">None yet: logged by weight.</p>}
             <ul className="text-[13px]">
               {measures.map((m) => {
@@ -228,7 +228,7 @@ export default function LibraryPage() {
                   <li key={f.id}>
                     <button type="button" onClick={() => setSelected(f.id)} className={cx('flex w-full items-baseline justify-between gap-3 px-4 py-2 text-left sm:px-6', selected === f.id ? 'bg-accent-wash' : 'hover:bg-surface-2')}>
                       <span className="min-w-0">
-                        <span className="text-[13.5px]">{favourites.includes(f.id) && <span className="mr-1 text-warning-ink">★</span>}{f.name}</span>
+                        <span className="text-[13.5px]">{favourites.includes(f.id) && <Icon name="star" size={12} filled className="mr-1 inline align-[-1px] text-warning" />}{f.name}</span>
                         {f.edited && <span className="ml-2 rounded-full bg-accent-wash px-1.5 py-0.5 text-[11px] text-accent-ink">edited</span>}
                         {f.brand && <span className="ml-1.5 text-[12px] text-muted">{f.brand}</span>}
                       </span>

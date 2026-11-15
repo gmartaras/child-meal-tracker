@@ -114,7 +114,7 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
       </div>
       {open && total > 0 && (
         <ul ref={list} role="listbox" className="scroll-thin absolute right-0 left-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-card">
-          {!q.trim() && <li className="px-3 pt-1 pb-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Favourites &amp; recent</li>}
+          {!q.trim() && <li className="px-3 pt-1 pb-0.5 text-[12px] font-medium text-muted">Favourites &amp; recent</li>}
           {results.map((f, i) => (
             <li
               key={f.id}
@@ -130,7 +130,7 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
             >
               <span className="min-w-0">
                 <span className="text-[13.5px]">
-                  {favSet.has(f.id) && <span className="mr-1 text-warning-ink" aria-label="favourite">★</span>}
+                  {favSet.has(f.id) && <Icon name="star" size={12} filled className="mr-1 inline align-[-1px] text-warning" />}
                   {f.name}
                 </span>
                 {f.brand && <span className="ml-1.5 text-[12px] text-muted">{f.brand}</span>}

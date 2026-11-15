@@ -240,7 +240,7 @@ export function FoodEditor({ target, onClose, onSaved }: { target: EditorTarget;
         if (!rows.length) return null
         return (
           <div key={g} className="mt-3">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">{g}</div>
+            <div className="mb-1 text-[12px] font-medium text-muted">{g}</div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
               {rows.map((n) => {
                 const o = original ? rawValue(original, n.id).v : null

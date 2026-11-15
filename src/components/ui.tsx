@@ -36,11 +36,14 @@ const PATHS: Record<string, string> = {
   ruler: 'M3 17 17 3l4 4L7 21zM7.500 12.500l2 2M10.500 9.500l2 2M13.500 6.500l2 2',
   minus: 'M5 12h14',
   arrowUp: 'M12 19V5M5 12l7-7 7 7',
+  arrowRight: 'M5 12h14M12 5l7 7-7 7',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  command: 'M9 9h6v6H9zM9 9V6a3 3 0 1 0-3 3h3M15 9V6a3 3 0 1 1 3 3h-3M9 15v3a3 3 0 1 1-3-3h3M15 15v3a3 3 0 1 0 3-3h-3',
 }
 
-export function Icon({ name, size = 16, className }: { name: keyof typeof PATHS | string; size?: number; className?: string }) {
+export function Icon({ name, size = 16, className, filled }: { name: keyof typeof PATHS | string; size?: number; className?: string; filled?: boolean }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={cx('shrink-0', className)} aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={cx('shrink-0', className)} aria-hidden="true">
       <path d={PATHS[name] ?? ''} />
     </svg>
   )
@@ -55,10 +58,10 @@ export function Button({ variant = 'secondary', size = 'md', icon, className, ch
       type="button"
       {...rest}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100',
         size === 'sm' ? 'h-8 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm',
-        variant === 'primary' && 'bg-ink text-surface hover:opacity-85',
-        variant === 'secondary' && 'bg-surface text-ink border border-line-strong hover:bg-surface-2',
+        variant === 'primary' && 'bg-ink text-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:opacity-90',
+        variant === 'secondary' && 'bg-surface text-ink border border-line hover:border-line-strong hover:bg-surface-2',
         variant === 'ghost' && 'text-ink-2 hover:bg-surface-2 hover:text-ink',
         variant === 'danger' && 'text-critical-ink border border-line-strong bg-surface hover:bg-critical-wash',
         className,
@@ -81,7 +84,7 @@ export function IconButton({ icon, label, className, ...rest }: ButtonHTMLAttrib
 // ---------- form controls ----------
 /** `w-full` unless the caller sets its own width class (two width utilities on one element would conflict) */
 const width = (className?: string) => (className && /(^|\s)(w-|max-w-\[)/.test(className) && /(^|\s)w-/.test(className) ? '' : 'w-full')
-const control = 'rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-50'
+const control = 'rounded-lg border border-line bg-surface hover:border-line-strong px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-50'
 
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...rest} className={cx(width(className), control, 'h-9', className)} />
@@ -127,7 +130,7 @@ export function Card({ className, children }: { className?: string; children: Re
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-[13px] font-semibold tracking-wide text-ink-2 uppercase">{children}</h2>
+      <h2 className="text-[14px] font-semibold text-ink">{children}</h2>
       {action}
     </div>
   )

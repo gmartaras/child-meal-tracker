@@ -91,7 +91,7 @@ function SessionCard({ s, client, onEdit }: { s: Session; client: Client; onEdit
         <div className={cx('mt-3 grid gap-x-6 gap-y-3', filled.length > 1 && 'lg:grid-cols-2')}>
           {filled.map(([k, label]) => (
             <div key={k}>
-              <div className="mb-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">{label}</div>
+              <div className="mb-0.5 text-[12px] font-medium text-muted">{label}</div>
               <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap">{s.sections![k]}</p>
             </div>
           ))}
@@ -145,7 +145,7 @@ function KeyContext({ client }: { client: Client }) {
   return (
     <Card className="p-4">
       <div className="mb-1.5 flex items-center justify-between">
-        <h2 className="text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Key context</h2>
+        <h2 className="text-[13px] font-semibold text-ink">Key context</h2>
         {!editing && <Button size="sm" variant="ghost" icon="edit" className="-my-1.5" onClick={() => (setText(client.context), setEditing(true))}>{client.context ? 'Edit' : 'Add'}</Button>}
       </div>
       {editing ? (
@@ -178,7 +178,7 @@ function Checklist({ client }: { client: Client }) {
   return (
     <Card className="p-4">
       <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Process checklist</h2>
+        <h2 className="text-[13px] font-semibold text-ink">Process checklist</h2>
         <span className="tnum text-[12px] text-muted">{items.filter((i) => done[i]).length} of {items.length}</span>
       </div>
       <ul className="space-y-0.5">
@@ -206,11 +206,11 @@ function RecordDetails({ client, onEdit }: { client: Client; onEdit: () => void 
   return (
     <Card className="p-4">
       <div className="mb-1 flex items-center justify-between">
-        <h2 className="text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Record</h2>
+        <h2 className="text-[13px] font-semibold text-ink">Record</h2>
         <Button size="sm" variant="ghost" icon="edit" className="-my-1.5" onClick={onEdit}>Edit</Button>
       </div>
       <dl className="divide-y divide-line">
-        {row('Shared folder', client.folderUrl ? <a href={client.folderUrl} target="_blank" rel="noreferrer noopener" className="font-medium text-accent-ink hover:underline">Open folder ↗</a> : <span className="text-muted">not linked</span>)}
+        {row('Shared folder', client.folderUrl ? <a href={client.folderUrl} target="_blank" rel="noreferrer noopener" className="font-medium text-accent-ink hover:underline">Open folder <Icon name="external" size={12} className="inline align-[-1px]" /></a> : <span className="text-muted">not linked</span>)}
         {row('Privacy notice given', client.privacyNoticeOn ? formatDate(client.privacyNoticeOn) : <span className="text-warning-ink">not recorded</span>)}
         {row('Discharged', client.dischargedOn ? formatDate(client.dischargedOn) : <span className="text-muted">active</span>)}
         {row('Keep record until', <span title={`Age ${retentionAge}, set in Settings → Data protection`}>{formatDate(reviewOn)}</span>)}
@@ -280,7 +280,7 @@ export default function ClientPage() {
         <div className="relative flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="primary" icon="note" onClick={newSession}>Session notes</Button>
           <Button size="sm" icon="apple" onClick={startHistory}>Food history</Button>
-          {client.folderUrl && <a href={client.folderUrl} target="_blank" rel="noreferrer noopener"><Button size="sm" variant="ghost">Folder ↗</Button></a>}
+          {client.folderUrl && <a href={client.folderUrl} target="_blank" rel="noreferrer noopener"><Button size="sm" variant="ghost">Folder <Icon name="external" size={13} /></Button></a>}
           <IconButton icon="menu" label="More actions" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} />
           {menu && (
             <div role="menu" className="absolute top-full right-0 z-20 mt-1 w-64 rounded-lg border border-line bg-surface py-1 shadow-card" onMouseLeave={() => setMenu(false)}>
@@ -315,14 +315,14 @@ export default function ClientPage() {
             <KeyContext client={client} />
             <Card className="p-4">
               <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Agreed actions{latestActions ? ` · ${formatDate(latestActions.date)}` : ''}</h2>
+                <h2 className="text-[13px] font-semibold text-ink">Agreed actions{latestActions ? ` · ${formatDate(latestActions.date)}` : ''}</h2>
                 <button type="button" className="text-[12.5px] font-medium text-accent-ink hover:underline" onClick={() => setTab('sessions')}>All session notes</button>
               </div>
               {latestActions ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{latestActions.sections!.actions}</p> : <p className="text-[13px] text-muted">Actions agreed with the family in a session appear here.</p>}
             </Card>
             <div className="grid gap-4 sm:grid-cols-2">
               <Card className="p-4">
-                <h2 className="mb-1.5 text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Latest session</h2>
+                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest session</h2>
                 {latestSession ? (
                   <button type="button" className="block w-full text-left" onClick={() => setTab('sessions')}>
                     <div className="text-[14px] font-medium">{formatDate(latestSession.date)} <span className="font-normal text-ink-2">· {latestSession.kind ?? 'Session'}</span></div>
@@ -333,7 +333,7 @@ export default function ClientPage() {
                 )}
               </Card>
               <Card className="p-4">
-                <h2 className="mb-1.5 text-[11px] font-semibold tracking-wide text-ink-2 uppercase">Latest food history</h2>
+                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest food history</h2>
                 {latestFood ? (
                   <Link to={`/c/${client.id}/a/${latestFood.a.id}`} className="block">
                     <div className="text-[14px] font-medium">{formatDate(latestFood.a.date)} <span className="font-normal text-ink-2">· {latestFood.a.title}</span></div>

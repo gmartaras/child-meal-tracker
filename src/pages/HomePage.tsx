@@ -61,8 +61,8 @@ export default function HomePage() {
           </Empty>
         </Card>
       ) : (
-        <Card className="mt-3 overflow-hidden">
-          <div className="hidden grid-cols-[minmax(9rem,1.2fr)_7rem_5.5rem_minmax(0,3fr)_5rem_1.5rem] gap-3 border-b border-line px-4 py-2 text-[11.5px] font-medium tracking-wide text-muted uppercase md:grid">
+        <Card className="mt-3">
+          <div className="hidden grid-cols-[minmax(9rem,1.2fr)_7rem_5.5rem_minmax(0,3fr)_5rem_1.5rem] gap-3 sticky top-0 z-10 rounded-t-xl border-b border-line bg-surface-2 px-4 py-2 text-[12px] font-medium text-muted md:grid">
             <span>Client</span><span>Age</span><span>Last contact</span><span>Agreed actions</span><span className="text-right">Records</span><span />
           </div>
           <ul className="divide-y divide-line">

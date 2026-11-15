@@ -95,7 +95,7 @@ function ItemRow({ item, usual, ageMonths, autoFocus, onChange, onRemove, onDone
   return (
     <div className={cx('px-3 py-2', item.refused && 'bg-surface-2/50')}>
       <div className="flex items-center gap-1.5">
-        <button type="button" aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'} title={isFav ? 'Remove from favourites' : 'Add to favourites'} onClick={() => updateSettings({ favourites: isFav ? favourites.filter((f) => f !== item.foodId) : [...favourites, item.foodId] })} className={cx('text-[13px] leading-none', isFav ? 'text-warning-ink' : 'text-line-strong hover:text-muted')}>★</button>
+        <button type="button" aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'} title={isFav ? 'Remove from favourites' : 'Add to favourites'} onClick={() => updateSettings({ favourites: isFav ? favourites.filter((f) => f !== item.foodId) : [...favourites, item.foodId] })} className={cx('inline-flex h-6 w-6 items-center justify-center rounded', isFav ? 'text-warning' : 'text-line-strong hover:text-muted')}><Icon name="star" size={13} filled={isFav} /></button>
         <span className={cx('min-w-0 flex-1 truncate text-[13.5px]', item.refused && 'text-muted line-through')} title={item.name}>{item.name}</span>
         {item.estimate && <span className="rounded bg-warning-wash px-1 text-[11.5px] text-warning-ink">estimate</span>}
         {!live && !item.snap && <span className="text-[11.5px] text-critical-ink">no longer in the library</span>}
@@ -110,7 +110,7 @@ function ItemRow({ item, usual, ageMonths, autoFocus, onChange, onRemove, onDone
         </button>
         <IconButton icon="trash" label={`Remove ${item.name}`} onClick={onRemove} className="-my-1 h-7 w-7" />
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-5">
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-[30px]">
         <input
           ref={qtyRef}
           value={qtyText}
@@ -366,7 +366,7 @@ export default function AssessmentPage() {
       {day.source != null && (
         <Card className="border-accent/30 bg-accent-wash/40 p-3">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[11px] font-semibold tracking-wide text-ink-2 uppercase">What the parent wrote</span>
+            <span className="text-[12px] font-medium text-ink-2">What the parent wrote</span>
             <button type="button" className="text-[12px] text-muted hover:text-ink" onClick={() => confirmDialog('Remove the parent’s text from this day?') && mapDay(day.id, ({ source: _s, ...d }) => d)}>Remove</button>
           </div>
           <AutoTextarea value={day.source ?? ''} onChange={(v) => mapDay(day.id, (d) => ({ ...d, source: v }))} minRows={3} className="border-transparent bg-transparent px-0 text-[13.5px] focus:border-transparent focus:ring-0" />

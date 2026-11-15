@@ -139,7 +139,7 @@ export default function SettingsPage() {
         <Section title="Nutrients shown" intro="Choose what appears in analyses, charts, reports and exports. Every nutrient in CoFID is always calculated, so you can switch more on at any time.">
           {GROUP_ORDER.map((g) => (
             <div key={g} className="mb-3 last:mb-0">
-              <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase">{g}</div>
+              <div className="mb-1.5 text-[12px] font-medium text-muted">{g}</div>
               <div className="flex flex-wrap gap-1.5">
                 {NUTRIENTS.filter((n) => n.group === g).map((n) => {
                   const on = settings.panel.includes(n.id)
