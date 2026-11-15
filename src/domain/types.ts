@@ -8,6 +8,7 @@ export interface LabelSource {
   publisher: 'manufacturer' | 'retailer'
   checkedOn: string
   version: string
+  preparation?: 'oven baked'
   /** Qualified label values such as "<0.5", stored separately from exact nutrient amounts. */
   bounds?: Record<string, string>
 }

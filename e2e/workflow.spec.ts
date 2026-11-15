@@ -216,6 +216,13 @@ test('uses a branded label portion in a diary and retains the consulted source',
   await expect(page.getByRole('link',{name:'View manufacturer label'})).toHaveAttribute('href',/weetabix\.co\.uk/)
   await expect(page.getByText('Folic acid (label)')).toBeVisible()
   await expect(page.getByText('one biscuit',{exact:true})).toBeVisible()
+  await page.getByLabel('Search the food library').fill('mccain potato smiles')
+  await page.getByRole('button',{name:/McCain Potato Smiles/}).click()
+  await expect(page.getByText(/UK label · oven baked/)).toBeVisible()
+  await expect(page.getByText('three pieces',{exact:true})).toBeVisible()
+  await page.getByLabel('Search the food library').fill('alpro original oat drink')
+  await page.getByRole('button',{name:/Alpro Original Oat Drink/}).click()
+  await expect(page.getByText('Nutrients per 100 ml',{exact:true})).toBeVisible()
 
   await page.evaluate(() => {
     localStorage.setItem('mealtrace:clients', JSON.stringify([{id:'a', firstName:'Synthetic Alice', code:'BRAND-TEST',

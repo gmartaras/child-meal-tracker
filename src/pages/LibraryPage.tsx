@@ -88,7 +88,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {food.labelSource && <div className="mb-4 rounded-lg border border-line bg-surface-2 p-3 text-xs text-ink-2">
-          <p className="font-medium">UK label · as sold · checked {food.labelSource.checkedOn.split('-').reverse().join('/')}</p>
+          <p className="font-medium">UK label · {food.labelSource.preparation ?? 'as sold'} · checked {food.labelSource.checkedOn.split('-').reverse().join('/')}</p>
           <p className="mt-1">Declared values only. Undeclared nutrients remain unknown. Use a version to record a different pack or formulation.</p>
           <a href={food.labelSource.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block font-medium text-accent-ink underline">View {food.labelSource.publisher} label</a>
         </div>}

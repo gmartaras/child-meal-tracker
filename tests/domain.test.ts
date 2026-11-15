@@ -251,4 +251,29 @@ describe('UK branded label foods', () => {
     expect(result.avg.calcium.v).toBe(136)
     expect(result.avg.sugars.missing).toEqual([mini.name])
   })
+
+  it('uses the oven-baked nutrient column with the corresponding portion weight', () => {
+    const smiles = getFood('b:mccain-potato-smiles-oven')!
+    const serving = measuresFor(smiles).find(m => m.label === 'three pieces')!
+    expect(serving.amount).toBe(51)
+    expect(smiles.labelSource?.preparation).toBe('oven baked')
+    const result = computeAssessment({days:[day('1',[item(smiles.id,serving.amount)])]})
+    expect(result.avg.energy.v).toBeCloseTo(118.32)
+  })
+
+  it('calculates plant drink nutrients from millilitres and preserves undeclared iodine', () => {
+    const oat = getFood('b:alpro-oat-original-uht')!
+    const soya = getFood('b:alpro-soya-no-sugars-uht')!
+    expect(oat.unit).toBe('ml')
+    expect(soya.unit).toBe('ml')
+    const cup = measuresFor(oat).find(m => m.label === 'cup (200 ml)')!
+    const result = computeAssessment({days:[day('1',[
+      item(oat.id,cup.amount,{unit:'ml'}),
+      item(soya.id,100,{unit:'ml'}),
+    ])]})
+    expect(result.avg.energy.v).toBe(123)
+    expect(result.avg.calcium.v).toBe(360)
+    expect(result.avg.iodine.v).toBe(45)
+    expect(result.avg.iodine.missing).toEqual([soya.name])
+  })
 })
