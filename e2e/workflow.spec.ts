@@ -1,5 +1,18 @@
 import { test, expect } from '@playwright/test'
 
+test('opens the practice privacy guide from the footer on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/?demo=1')
+  await page.getByRole('contentinfo').getByRole('link', {name:'Privacy & security'}).click()
+  await expect(page.getByRole('heading', {name:'Privacy & security'})).toBeVisible()
+  await page.getByText('What was checked in the live app', {exact:true}).click()
+  await expect(page.getByRole('link', {name:'Rules tests'})).toBeVisible()
+  await page.getByText('Three priorities for Katarina', {exact:true}).click()
+  await expect(page.getByText(/Firebase Authentication runs from US data centres/)).toBeVisible()
+  await page.getByRole('link', {name:'Back to clients'}).click()
+  await expect(page).toHaveURL(/#\/$/)
+})
+
 // Synthetic records only. Runs against the dev-only trial mode (?demo=1), never against cloud data.
 test('food entry, completed days, finalising, amendment and family privacy', async ({ page }) => {
   const errors: string[] = []

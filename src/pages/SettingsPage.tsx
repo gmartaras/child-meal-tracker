@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { Banner, Button, Card, Field, IconButton, Input, Textarea, confirmDialog, cx } from '../components/ui'
 import { BANDS, ENERGY_CHILD, ENERGY_INFANT, LRNI, RNI, SALT_MAX } from '../domain/drv'
 import { cofidCount, cofidVersion, getFood } from '../domain/foods'
@@ -242,12 +243,12 @@ export default function SettingsPage() {
             <Field label="Sign out automatically after (minutes)" hint="With no clicks or typing. 0 switches this off.">
               <Input key={settings.autoLockMin} inputMode="numeric" className="tnum w-28" defaultValue={settings.autoLockMin ?? 30} onBlur={(e) => { const x = parseInt(e.target.value); update({ autoLockMin: isFinite(x) && x >= 0 ? x : 30 }) }} />
             </Field>
-<div className="rounded-lg border border-line p-3 text-[13px]"><span className="font-medium">No copy is kept on this device</span><span className="mt-0.5 block text-[12.5px] text-ink-2">Records are held in memory only while the app is open and are cleared when the tab closes. The app needs a connection to load and save.</span></div>
+            <div className="rounded-lg border border-line p-3 text-[13px]"><span className="font-medium">Clinical record cache</span><span className="mt-0.5 block text-[12.5px] text-ink-2">{mode === 'cloud' ? 'The cloud app caches records in memory while the tab is open. Manage downloaded and printed copies separately.' : 'Trial mode stores its records in this browser. Use synthetic records here.'}</span></div>
           </div>
           <p className="mt-2 text-[12px] text-muted">Wait for “Saved to cloud” before closing the tab: an unsaved edit is lost if the tab closes first.</p>
         </Section>
 
-        <Section title="Data protection" intro={<>What the app does to support UK GDPR, and what stays with you as the data controller. The full write-up is in <code className="text-[12px]">docs/data-protection.md</code>.</>}>
+        <Section title="Data protection" intro={<Link to="/privacy" className="text-accent-ink underline">Read the privacy and security guide for UK practices</Link>}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Keep each child’s record until age" hint="Shown on every client’s overview as the date to review and delete. Confirm the period with your professional body or insurer.">
               <Input key={retentionAge} inputMode="numeric" className="tnum w-28" defaultValue={retentionAge} onBlur={(e) => { const x = parseInt(e.target.value); update({ retentionAge: isFinite(x) && x > 0 ? x : 25 }) }} />
@@ -259,12 +260,12 @@ export default function SettingsPage() {
           </div>
           <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-ink-2">
             <li>Each client’s menu has <strong className="font-medium text-ink">Export full record</strong> (for an access or portability request) and <strong className="font-medium text-ink">Delete client and all data</strong> (for an erasure request).</li>
-            <li>Only a first name, date of birth, sex and your code are asked for. The name typed on a report is not saved.</li>
-            <li>Nothing is sent to analytics, advertising or AI services. The only outside service is Google Firebase, in London.</li>
+            <li>Keep clinical notes, imported text and files limited to what the practice needs. The name typed on a report is not saved to the client profile.</li>
+            <li>The clinical database is in London. Google sign-in and Drive previews have separate data flows described in the privacy guide.</li>
           </ul>
           <details className="mt-3">
             <summary className="text-[13px] font-medium text-accent-ink">Access log ({audit.length})</summary>
-            <p className="mt-1 text-[12px] text-muted">Sign-ins, exports, backups, restores and deletions on this account. Entries cannot be edited or removed from within the app.</p>
+            <p className="mt-1 text-[12px] text-muted">{mode === 'cloud' ? 'The current production rules do not record in-app access events. Review audit evidence outside Mealtrace.' : 'Trial events are for testing only.'}</p>
             <Card className="mt-2 max-h-64 overflow-y-auto">
               <table className="tnum w-full text-[12.5px]">
                 <tbody className="divide-y divide-line">

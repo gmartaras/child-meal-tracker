@@ -9,6 +9,7 @@ import FamilyPage from './pages/FamilyPage'
 import LibraryPage from './pages/LibraryPage'
 import HomePage from './pages/HomePage'
 import PrintDocPage from './pages/PrintDocPage'
+import PrivacyPage from './pages/PrivacyPage'
 import ReportPage from './pages/ReportPage'
 import SettingsPage from './pages/SettingsPage'
 import { useStore } from './store/store'
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="/c/:id/print/:doc" element={<PrintDocPage />} />
           <Route path="/foods" element={<LibraryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

@@ -168,6 +168,9 @@ export function Layout({ children }: { children: ReactNode }) {
           )}
           {children}
         </main>
+        <footer className="shrink-0 border-t border-line px-4 py-1.5 text-right">
+          <NavLink to="/privacy" className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline">Privacy &amp; security</NavLink>
+        </footer>
       </div>
     </div>
   )
