@@ -127,3 +127,38 @@ test('food library: edit and revert a CoFID food, make a version, build a recipe
   await expect(page.getByRole('heading', { name: 'Synthetic milk pudding' })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('retains client handouts, prior actions, diary dates and reusable meals', async ({ page }) => {
+  await page.goto('/?demo=1')
+  await page.evaluate(() => {
+    localStorage.setItem('mealtrace:clients', JSON.stringify([{
+      id: 'a', firstName: 'Synthetic Alice', code: 'TEST-A', dob: '2024-01-01',
+      sex: 'F', feeding: 'na', context: '', createdAt: 1, updatedAt: 1,
+      goals: [{ id: 'goal1', text: 'Discuss snacks at follow-up', due: '', done: false, outcome: '' }],
+    }]))
+    localStorage.setItem('mealtrace:meta', JSON.stringify([{
+      id: 'settings', savedMeals: [{ id: 'meal1', name: 'Test breakfast', items: [{
+        id: 'milk', foodId: 'c:12-596', name: 'Whole milk', unit: 'g',
+        amount: 100, qty: 100, measure: 'g', measureAmount: 1,
+      }] }],
+    }]))
+  })
+  await page.goto('/?demo=1#/c/a')
+  await page.reload()
+  await page.getByText('Previously recorded actions', { exact: true }).click()
+  await expect(page.getByText('Discuss snacks at follow-up')).toBeVisible()
+  await page.getByText('Files and handouts', { exact: true }).click()
+  await page.getByLabel('Title', { exact: true }).fill('Synthetic food diary')
+  await page.getByLabel('Google Drive link').fill('https://drive.google.com/file/d/synthetic-example/view')
+  await page.getByRole('button', {name: 'Add link'}).click()
+  await expect(page.getByRole('link', {name: 'Synthetic food diary'})).toBeVisible()
+  await page.getByRole('button', {name: 'Food history', exact: true}).first().click()
+  await page.getByLabel('Diary date (optional)').fill('2026-11-14')
+  await page.getByText('Reusable meals', {exact: true}).click()
+  await page.getByLabel('Insert saved meal').selectOption('meal1')
+  await expect(page.getByLabel(/Quantity of Whole milk/)).toBeVisible()
+  await expect(page.getByText('Saved', {exact: true})).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Diary date (optional)')).toHaveValue('2026-11-14')
+  await expect(page.getByLabel(/Quantity of Whole milk/)).toBeVisible()
+})

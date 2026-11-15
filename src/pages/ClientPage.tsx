@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ClientForm, FEEDING_LABEL } from '../components/ClientForm'
 import { StatusChip } from '../components/analysis'
 import { Button, Card, Empty, Field, Icon, IconButton, Input, Modal, Select, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
-import { ageInMonths, formatAge, formatDate, todayISO } from '../domain/age'
+import { ageInMonths, formatAge, formatDate, todayISO, uid } from '../domain/age'
 import { TYPE_LABEL, analyse, type Analysis } from '../domain/analysis'
 import { statusOf } from '../domain/drv'
 import { fmt } from '../domain/nutrients'
@@ -236,6 +236,61 @@ function RecordDetails({ client, onEdit }: { client: Client; onEdit: () => void 
 }
 
 // ---------- page ----------
+const RESOURCE_CATEGORIES = ['Food diary', 'Accepted foods list', 'Questionnaire', 'Meal plan', 'Other handout']
+
+function privateDriveLink(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(url.hostname) || url.username || url.password) return
+    if (!/^\/(?:file\/d\/|drive\/(?:u\/\d+\/)?folders\/|(?:document|spreadsheets|presentation|forms)\/d\/)/.test(url.pathname)) return
+    return url.href
+  } catch {
+    return undefined
+  }
+}
+
+function ClientResources({ client }: { client: Client }) {
+  const save = useStore(s => s.patchClient)
+  const [category, setCategory] = useState(RESOURCE_CATEGORIES[0])
+  const [title, setTitle] = useState('')
+  const [url, setUrl] = useState('')
+  const [pending, setPending] = useState(false)
+  const [status, setStatus] = useState('')
+  const resources = client.resources ?? []
+  const saveList = async (list: NonNullable<Client['resources']>) => {
+    setPending(true)
+    const ok = await save(client.id, { resources: list })
+    setPending(false)
+    setStatus(ok ? 'Files and handouts updated.' : 'Changes could not be saved. Your entry is still here.')
+    return ok
+  }
+
+  return <details className="rounded-xl border border-line bg-surface p-4">
+    <summary className="cursor-pointer font-semibold">Files and handouts</summary>
+    <p className="my-3 text-sm text-ink-2">Link the family's completed diary, questionnaires and handouts in your practice Drive. File permissions are managed in Drive.</p>
+    <ul className="mb-3 space-y-2">{resources.map(resource => {
+      const href = privateDriveLink(resource.url)
+      return <li key={resource.id} className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted">{resource.category}</span>
+        {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">{resource.title}</a> : <span>{resource.title}</span>}
+        <Button size="sm" disabled={pending} onClick={() => void saveList(resources.filter(r=>r.id!==resource.id))}>Remove link</Button>
+      </li>
+    })}</ul>
+    <form className="grid gap-2 sm:grid-cols-3" onSubmit={async event=>{
+      event.preventDefault()
+      const link = privateDriveLink(url.trim())
+      if (!link || !title.trim()) {setStatus('Enter a title and a Google Drive or Docs link.'); return}
+      if (await saveList([...resources, {id:uid(), title:title.trim(), url:link, category}])) {setTitle(''); setUrl('')}
+    }}>
+      <Field label="File type"><Select value={category} onChange={e=>setCategory(e.target.value)}>{RESOURCE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</Select></Field>
+      <Field label="Title"><Input value={title} maxLength={120} onChange={e=>setTitle(e.target.value)}/></Field>
+      <Field label="Google Drive link"><Input type="url" value={url} onChange={e=>setUrl(e.target.value)}/></Field>
+      <Button type="submit" size="sm" disabled={pending}>Add link</Button>
+    </form>
+    <p role="status" className="mt-2 text-sm">{status}</p>
+  </details>
+}
+
 export default function ClientPage() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -367,6 +422,17 @@ export default function ClientPage() {
           <div className="space-y-4">
             <Checklist client={client} />
             <RecordDetails client={client} onEdit={() => setModal('edit')} />
+            <ClientResources key={`resources-${client.id}`} client={client} />
+            {!!client.goals?.length && (
+              <Card className="p-4">
+                <details>
+                  <summary className="cursor-pointer font-semibold">Previously recorded actions</summary>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                    {client.goals.map(goal => <li key={goal.id}>{goal.text}{goal.due && ` · review ${goal.due}`}{goal.done && ' · completed'}{goal.outcome && ` · ${goal.outcome}`}</li>)}
+                  </ul>
+                </details>
+              </Card>
+            )}
           </div>
         </div>
       )}

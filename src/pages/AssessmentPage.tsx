@@ -206,6 +206,7 @@ export default function AssessmentPage() {
   const settings = useStore((s) => s.settings)
   const saveAssessment = useStore((s) => s.saveAssessment)
   const deleteAssessment = useStore((s) => s.deleteAssessment)
+  const saveMeals = useStore(s => s.updateSettings)
   const touchRecent = useStore((s) => s.touchRecent)
 
   const [draft, setDraft] = useState<Assessment | null>(null)
@@ -452,6 +453,12 @@ export default function AssessmentPage() {
         <input aria-label="Day label" value={day.label} onChange={(e) => mapDay(day.id, (d) => ({ ...d, label: e.target.value }))} placeholder="Day label, e.g. Day 1 · Saturday at home" className="h-8 w-full rounded-lg border border-transparent bg-transparent px-1 text-[13.5px] font-medium hover:border-line focus:border-accent focus:bg-surface focus:outline-none" />
       )}
 
+      {!usual && draft.type === 'diary' && (
+        <Field label="Diary date (optional)">
+          <Input type="date" value={day.diaryDate ?? ''} onChange={e => mapDay(day.id, d => ({...d, diaryDate: e.target.value || undefined}))} />
+        </Field>
+      )}
+
       <label className={cx('flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px]', day.complete ? 'border-good/40 bg-good-wash' : 'border-line bg-surface')}>
         <input type="checkbox" className="h-4 w-4 accent-[var(--ink)]" checked={day.complete === true} onChange={(e) => mapDay(day.id, (d) => ({ ...d, complete: e.target.checked }))} />
         <span className="font-medium">{usual ? 'Usual day complete' : 'Day complete'}</span>
@@ -467,6 +474,34 @@ export default function AssessmentPage() {
           <AutoTextarea value={day.source ?? ''} onChange={(v) => mapDay(day.id, (d) => ({ ...d, source: v }))} minRows={3} className="border-transparent bg-transparent px-0 text-[13.5px] focus:border-transparent focus:ring-0" />
         </Card>
       )}
+
+      <details className="rounded-xl border border-line bg-surface p-3">
+        <summary className="cursor-pointer text-sm font-semibold">Reusable meals</summary>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={!day.meals.some(meal => meal.items.some(item => item.amount > 0))} onClick={() => {
+            const name = window.prompt('Name the foods from this day to reuse later')?.trim()
+            if (!name) return
+            const items = day.meals.flatMap(meal => meal.items).filter(item => item.amount > 0).map(item => {
+              const food = foodOf(item)
+              if (!food) return item
+              return {...item, snap: {
+                kind: food.kind, sourceFoodId: food.sourceFoodId, infantFormula: food.infantFormula,
+                per: food.per, values: {...food.values},
+              }}
+            })
+            const saved = useStore.getState().settings.savedMeals ?? []
+            saveMeals({savedMeals: [...saved, {id: uid(), name, items}]})
+          }}>Save foods as reusable meal</Button>
+          <Select className="w-auto" aria-label="Insert saved meal" value="" disabled={!day.meals.length} onChange={e => {
+            const savedMeal = settings.savedMeals?.find(meal => meal.id === e.target.value)
+            if (!savedMeal || !day.meals[0]) return
+            mapMeal(day.id, day.meals[0].id, items => [...items, ...savedMeal.items.map(item => ({...item, id: uid()}))])
+          }}>
+            <option value="">Insert into {day.meals[0]?.name.toLowerCase() ?? 'first meal'}…</option>
+            {settings.savedMeals?.map(meal => <option key={meal.id} value={meal.id}>{meal.name}</option>)}
+          </Select>
+        </div>
+      </details>
 
       {day.meals.map((meal) => {
         const mealKcal = meal.items.reduce((sum, it) => {
