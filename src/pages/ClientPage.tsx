@@ -186,10 +186,13 @@ function Checklist({ client }: { client: Client }) {
   const items = useStore((s) => s.settings.checklist) ?? DEFAULT_CHECKLIST
   const done = client.checklist ?? {}
   const toggle = (label: string) => {
-    const next = { ...done }
-    if (next[label]) delete next[label]
-    else next[label] = todayISO()
-    void patchClient(client.id, { checklist: next })
+    // built from the latest saved copy, so quick successive ticks all persist
+    void patchClient(client.id, (latest) => {
+      const next = { ...(latest.checklist ?? {}) }
+      if (next[label]) delete next[label]
+      else next[label] = todayISO()
+      return { checklist: next }
+    })
   }
   return (
     <Card className="p-4">

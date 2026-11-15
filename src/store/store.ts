@@ -62,7 +62,9 @@ interface State {
   signOut(): Promise<void>
   saveClient(c: Partial<Client> & { firstName: string; dob: string }): Client
   /** Change some fields of a client. Patches are applied one after another on top of the latest saved record, so quick successive edits never overwrite each other. */
-  patchClient(id: string, patch: Partial<Client>): Promise<boolean>
+  /** Pass a function when the change depends on current values (e.g. toggling one checklist item):
+   *  it runs on the latest saved copy, after any earlier queued saves, so rapid edits are not lost. */
+  patchClient(id: string, patch: Partial<Client> | ((latest: Client) => Partial<Client>)): Promise<boolean>
   saveContext(id: string, value: string, previous: string): Promise<void>
   saveResources(client: Client, resources: NonNullable<Client["resources"]>): Promise<boolean>
   deleteClient(id: string): void
@@ -232,7 +234,8 @@ export const useStore = create<State>((set, get) => {
         // the store copy wins if it is newer than our last write (e.g. a context save or another device)
         const stored = get().clients.find((c) => c.id === id)
         const latest = stored && stored.updatedAt > base.updatedAt ? stored : base
-        const doc: Client = { ...latest, ...patch, id, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
+        const changes = typeof patch === 'function' ? patch(latest) : patch
+        const doc: Client = { ...latest, ...changes, id, updatedAt: Math.max(Date.now(), latest.updatedAt + 1) }
         const ok = await put('clients', doc, latest.updatedAt)
         if (ok) lastClient.set(id, doc)
         else lastClient.delete(id)

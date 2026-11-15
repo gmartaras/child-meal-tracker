@@ -23,7 +23,9 @@ export function Sensory({ client }: { client: Client }) {
   const [view, setView] = useState<'flagged' | 'all'>('flagged')
   const preview = useMemo(() => (text.trim() ? parseSensory(text) : []), [text])
 
-  const setRow = (idx: number, patch: Partial<SensoryRow>) => rec && patchClient(client.id, { sensory: { ...rec, rows: rec.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) } })
+  // built from the latest saved copy, so quick successive edits to different rows all persist
+  const setRow = (idx: number, patch: Partial<SensoryRow>) =>
+    rec && patchClient(client.id, (latest) => latest.sensory ? { sensory: { ...latest.sensory, rows: latest.sensory.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) } } : {})
   const sections = rec ? [...new Set(rec.rows.map((r) => r.section))] : []
 
   return (
