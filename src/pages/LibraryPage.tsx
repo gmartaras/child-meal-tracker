@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FoodEditor, type EditorTarget } from '../components/FoodEditor'
 import { RecipeEditor } from '../components/RecipeEditor'
 import { Button, Field, Icon, IconButton, Input, Modal, confirmDialog, cx } from '../components/ui'
@@ -158,12 +159,13 @@ function useIsDesktop(): boolean {
 
 export default function LibraryPage() {
   const desktop = useIsDesktop()
+  const [params] = useSearchParams()
   const foods = useStore((s) => s.foods)
   const favourites = useStore((s) => s.settings.favourites)
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [limit, setLimit] = useState(60)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(() => params.get("food"))
   const [editor, setEditor] = useState<EditorTarget | { type: 'recipe'; recipe?: CustomFood } | null>(null)
 
   const customById = useMemo(() => new Map(foods.filter((f) => !f.overrideOf).map((f) => ['u:' + f.id, f])), [foods])

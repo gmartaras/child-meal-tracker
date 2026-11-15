@@ -6,10 +6,10 @@ import { Headline, InsightList, MacroBar, NutrientTable, SourcesList } from '../
 import { AutoTextarea, Button, Card, Field, Icon, IconButton, Input, Modal, SectionTitle, Segmented, Select, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
 import { ageInMonths, formatAge, uid } from '../domain/age'
 import { analyse, isUsual, previousAssessment } from '../domain/analysis'
-import { dailyAmount, foodOf, freqFactor, rawValue } from '../domain/calc'
+import { computeDay, dailyAmount, dayItems, foodOf, freqFactor, rawValue } from '../domain/calc'
 import { BREAST_MILK_ID, getFood } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
-import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
+import { NUTRIENT_BY_ID, NUTRIENTS, fmt, fmtNutrient } from '../domain/nutrients'
 import { splitDiaryByDay } from '../domain/parse'
 import { MEAL_NAMES, type Assessment, type CustomFood, type Day, type Food, type Freq, type Item, type Measure } from '../domain/types'
 import { useStore } from '../store/store'
@@ -211,6 +211,15 @@ export default function AssessmentPage() {
 
   const [draft, setDraft] = useState<Assessment | null>(null)
   const [dayIdx, setDayIdx] = useState(0)
+  const [mealIndex, setMealIndex] = useState(0)
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const [savingDay, setSavingDay] = useState(false)
+  const chooseDay = (index: number) => {
+    setDayIdx(index)
+    setMealIndex(0)
+    setPreviewId(null)
+    setPane('entry')
+  }
   const [focusId, setFocusId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>('iron')
   const [pane, setPane] = useState<'entry' | 'analysis'>('entry')
@@ -306,19 +315,21 @@ export default function AssessmentPage() {
 
   const usual = isUsual(draft)
   const finalised = draft.state === 'finalised'
-  const locked = finalised || finalising
+  const locked = finalised || finalising || savingDay
   const incompleteDays = draft.days.filter((d) => !d.complete && !d.excluded)
-  const needsQuantity = draft.days.some((d) => !d.excluded && d.meals.some((m) => m.items.some((i) => !i.refused && !(i.amount > 0))))
+  const missingQuantity = (d: Day) => dayItems(d).some(i => !i.refused && !(i.amount > 0))
+  const quantityDay = draft.days.find(d => !d.excluded && missingQuantity(d))
+  const nextDay = quantityDay ?? incompleteDays[0]
   const whyBlocked = saveFailed
-    ? 'Retry saving your edits before finalising.'
-    : needsQuantity
-      ? 'Enter a quantity for each food, mark it “not eaten”, or remove the empty row.'
-      : incompleteDays.length
-        ? `Tick “Day complete” on ${incompleteDays.map((d) => d.label.split(' · ')[0]).join(', ')} once the foods and amounts are recorded.`
-        : !analysis.result.nDays
-          ? 'Include at least one completed day.'
-          : !saved
-            ? 'Saving your edits. Finalise will be available once they are saved.'
+    ? 'Your edits could not be saved. Choose Retry save.'
+    : !saved || savingDay
+      ? 'Waiting for your changes to save.'
+      : quantityDay
+        ? `Enter amounts for the foods on ${quantityDay.label}, or mark them as not eaten.`
+        : incompleteDays.length
+          ? `Confirm or exclude ${incompleteDays.map(d => d.label).join(', ')}. A breakfast on its own can be analysed without confirming the whole day.`
+          : !analysis.result.nDays
+            ? 'Confirm at least one day before finalising.'
             : ''
   const openReport = async (kind: 'parent' | 'clinical') => {
     if (await flush()) nav(`/c/${client.id}/report/${draft.id}/${kind}`)
@@ -352,6 +363,32 @@ export default function AssessmentPage() {
   }
   const ageMonths = ageInMonths(client.dob, draft.date)
   const day = draft.days[Math.min(usual ? 0 : dayIdx, draft.days.length - 1)]
+  const dayFoods = dayItems(day)
+  const hasAmounts = dayFoods.some(i => !i.refused && i.amount > 0)
+  const canConfirm = dayFoods.length > 0 && !missingQuantity(day)
+  const activeMeal = Math.min(mealIndex, day.meals.length - 1)
+  const acceptedChoices = (client.acceptedFoods ?? []).filter((f, i, list) =>
+    !!f.foodId && !!getFood(f.foodId) && list.findIndex(item => item.foodId === f.foodId) === i)
+  const previewTotals = previewId === day.id ? computeDay(day) : null
+
+  const saveDay = async (action: 'confirm' | 'exclude' | 'include') => {
+    if (locked || saveFailed || (action === 'confirm' && !canConfirm)) return
+    if (action === 'exclude' && dayFoods.length && !confirmDialog(`Exclude ${day.label} from analysis? The entries will be kept in the draft.`)) return
+    setSavingDay(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    const current = latest.current ?? draft
+    const next: Assessment = {
+      ...current, state: 'draft',
+      days: current.days.map(d => d.id === day.id ? {...d, complete: action === 'confirm', excluded: action === 'exclude'} : d),
+    }
+    latest.current = next
+    setDraft(next)
+    setSaved(false)
+    const ok = await persist(next)
+    setSaved(ok)
+    setSavingDay(false)
+  }
   const mapDay = (dayId: string, fn: (d: Day) => Day) => update((a) => ({ ...a, days: a.days.map((d) => (d.id === dayId ? fn(d) : d)) }))
   const mapMeal = (dayId: string, mealId: string, fn: (items: Item[]) => Item[]) => mapDay(dayId, (d) => ({ ...d, complete: false, meals: d.meals.map((m) => (m.id === mealId ? { ...m, items: fn(m.items) } : m)) }))
 
@@ -385,12 +422,12 @@ export default function AssessmentPage() {
     const label = `Day ${draft.days.length + 1}`
     const d: Day = copyFrom ? { id: uid(), label, meals: copyFrom.meals.map((m) => ({ ...m, id: uid(), items: m.items.map((i) => ({ ...i, id: uid() })) })) } : newDay(label, day.meals.map((m) => m.name))
     update((a) => ({ ...a, days: [...a.days, d] }))
-    setDayIdx(draft.days.length)
+    chooseDay(draft.days.length)
   }
   const removeDay = (d: Day) => {
     if ((d.meals.some((m) => m.items.length) || d.source) && !confirmDialog(`Delete ${d.label} and everything recorded in it?`)) return
     update((a) => ({ ...a, days: a.days.filter((x) => x.id !== d.id) }))
-    setDayIdx(0)
+    chooseDay(0)
   }
 
   const setMethod = (m: 'diary' | 'usual') => {
@@ -401,7 +438,7 @@ export default function AssessmentPage() {
       if (filled.length > 1 && !confirmDialog(`“Usual intake” describes a single typical day. Keep ${filled[0].label} as that day and remove the other ${filled.length - 1}?`)) return
       const keep = filled[0] ?? draft.days[0]
       update((a) => ({ ...a, type: 'usual', title: /food history|food diary/i.test(a.title) ? 'Usual intake' : a.title, days: [{ ...keep, label: 'Usual day' }] }))
-      setDayIdx(0)
+      chooseDay(0)
     } else {
       const anyFreq = draft.days.some((d) => d.meals.some((x) => x.items.some((i) => i.freq)))
       if (anyFreq && !confirmDialog('A food diary records what was actually eaten each day, so the “how often” settings will be cleared. Continue?')) return
@@ -428,19 +465,30 @@ export default function AssessmentPage() {
     setPasting(false)
   }
 
+  const mealNav = (
+    day.meals.length > 0 && <nav className="scroll-thin flex gap-1 overflow-x-auto rounded-lg border border-line bg-surface-2 p-1" aria-label="Meals in order">
+        {day.meals.map((meal,index)=><button key={meal.id} type="button" aria-pressed={index===activeMeal}
+          onClick={()=>setMealIndex(index)}
+          className={cx('shrink-0 rounded-md px-2.5 py-2 text-xs font-medium',index===activeMeal ? 'bg-ink text-surface' : 'text-ink-2 hover:bg-surface')}>
+          {meal.name}{meal.items.length ? ` · ${meal.items.length}` : ''}
+        </button>)}
+      </nav>
+  )
+  const dayNav = !usual && (
+            <nav className="flex flex-wrap gap-1" aria-label="Diary days">
+              {draft.days.map((d, i) => (
+                <button key={d.id} type="button" onClick={() => chooseDay(i)} aria-pressed={i === dayIdx} className={cx('rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors', i === dayIdx ? 'bg-ink text-surface' : 'bg-surface-2 text-ink-2 hover:text-ink')}>
+                  {d.label.split(' · ')[0]}{d.excluded ? ' · Excluded' : d.complete ? ' · Confirmed' : ''}
+                  <span className={cx('ml-1.5 text-[11.5px]', i === dayIdx ? 'opacity-70' : 'text-muted')}>{d.meals.reduce((n, m) => n + m.items.length, 0)}</span>
+                </button>
+              ))}
+            </nav>
+  )
   const entry = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {!usual && (
           <>
-            <div className="flex flex-wrap gap-1">
-              {draft.days.map((d, i) => (
-                <button key={d.id} type="button" onClick={() => setDayIdx(i)} aria-pressed={i === dayIdx} className={cx('rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors', i === dayIdx ? 'bg-ink text-surface' : 'bg-surface-2 text-ink-2 hover:text-ink')}>
-                  {d.label.split(' · ')[0]}
-                  <span className={cx('ml-1.5 text-[11.5px]', i === dayIdx ? 'opacity-70' : 'text-muted')}>{d.meals.reduce((n, m) => n + m.items.length, 0)}</span>
-                </button>
-              ))}
-            </div>
             <IconButton icon="plus" label="Add a day" onClick={() => addDay()} />
             <IconButton icon="copy" label="Copy this day into a new day" onClick={() => addDay(day)} />
             {draft.days.length > 1 && <IconButton icon="trash" label={`Delete ${day.label}`} onClick={() => removeDay(day)} />}
@@ -459,11 +507,37 @@ export default function AssessmentPage() {
         </Field>
       )}
 
-      <label className={cx('flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px]', day.complete ? 'border-good/40 bg-good-wash' : 'border-line bg-surface')}>
-        <input type="checkbox" className="h-4 w-4 accent-[var(--ink)]" checked={day.complete === true} onChange={(e) => mapDay(day.id, (d) => ({ ...d, complete: e.target.checked }))} />
-        <span className="font-medium">{usual ? 'Usual day complete' : 'Day complete'}</span>
-        <span className="text-ink-2">{day.complete ? 'Included in the analysis.' : 'Tick when the foods and amounts are all entered. Only completed days are analysed; editing a day un-ticks it.'}</span>
-      </label>
+      <Card className="space-y-2 p-3.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cx('rounded-md px-2 py-1 text-xs font-semibold',day.complete && saved ? 'bg-good-wash text-good-ink' : 'bg-surface-2 text-ink-2')}>
+            {day.excluded ? 'Excluded from analysis' : day.complete ? (saved ? 'Confirmed in client record' : 'Confirmation pending') : 'Draft day'}
+          </span>
+          <Button size="sm" icon="trend" disabled={!hasAmounts} onClick={() => setPreviewId(previewId === day.id ? null : day.id)}>{previewId === day.id ? 'Hide analysis' : 'Analyse day'}</Button>
+          {!day.complete && !day.excluded && <Button size="sm" variant="primary" disabled={!canConfirm || saveFailed} onClick={() => void saveDay('confirm')}>Confirm and save day</Button>}
+          {!usual && !day.excluded && <Button size="sm" variant="ghost" disabled={saveFailed} onClick={() => void saveDay('exclude')}>Exclude day</Button>}
+          {day.excluded && <Button size="sm" disabled={saveFailed} onClick={() => void saveDay('include')}>Include as draft</Button>}
+        </div>
+        <p className="text-xs text-ink-2">
+          {day.excluded ? 'The entries are kept, but this day does not count towards the average.' :
+            day.complete ? 'Changing a food returns this day to draft so you can check and confirm the new amounts.' :
+            missingQuantity(day) ? 'Enter a quantity for each food or mark it as not eaten before confirming.' :
+            'Analyse recorded foods at any point. Confirm the day when the record is ready to count towards the average.'}
+        </p>
+        {previewTotals && <section className="rounded-lg border border-line bg-surface-2 p-3">
+          <h3 className="text-sm font-semibold">Recorded intake for {day.label}</h3>
+          <p className="mb-2 text-xs text-ink-2">Preview of entered amounts. It does not change the confirmed average.{missingQuantity(day) && " Foods without an amount are omitted."}{draft.unquantifiedBreastMilk && " Unquantified breast milk is omitted."}</p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {NUTRIENTS.filter(n=>settings.panel.includes(n.id)).map(n=>{
+              const total = previewTotals[n.id]
+              if (!total) return null
+              return <div key={n.id} className="flex flex-wrap justify-between gap-x-1 text-xs">
+                <dt>{n.short ?? n.label}</dt>
+                <dd className="tnum">{total.missing.length && total.v === 0 ? 'Unknown' : `${total.missing.length || total.lowEst ? '≥ ' : ''}${fmtNutrient(n.id,total.v)} ${n.unit}`}</dd>
+              </div>
+            })}
+          </dl>
+        </section>}
+      </Card>
 
       {day.source != null && (
         <Card className="border-accent/30 bg-accent-wash/40 p-3">
@@ -503,7 +577,8 @@ export default function AssessmentPage() {
         </div>
       </details>
 
-      {day.meals.map((meal) => {
+      {!locked && mealNav}
+      {day.meals.filter((_, index) => index === activeMeal).map((meal) => {
         const mealKcal = meal.items.reduce((sum, it) => {
           const f = foodOf(it)
           const k = f ? rawValue(f, 'energy').v : null
@@ -536,6 +611,13 @@ export default function AssessmentPage() {
               </div>
             )}
             <div className={cx('px-3 pb-3', meal.items.length ? 'border-t border-line pt-3' : 'pt-1')}>
+              {acceptedChoices.length > 0 && <Select aria-label={`Add an accepted food to ${meal.name}`} value="" className="mb-2" onChange={e=>{
+                const food = getFood(e.target.value)
+                if (food) addFood(day.id, meal.id, food)
+              }}>
+                <option value="">Choose from accepted foods…</option>
+                {acceptedChoices.map(f=><option key={f.id} value={f.foodId}>{f.name}</option>)}
+              </Select>}
               <FoodSearch
                 ref={(h) => {
                   searchRefs.current[meal.id] = h
@@ -548,6 +630,10 @@ export default function AssessmentPage() {
           </Card>
         )
       })}
+      {activeMeal >= 0 && <div className="flex flex-wrap justify-between gap-2">
+        {activeMeal > 0 && <Button size="sm" icon="arrowLeft" onClick={()=>setMealIndex(activeMeal-1)}>{day.meals[activeMeal-1].name}</Button>}
+        {activeMeal < day.meals.length-1 && <Button className="ml-auto" size="sm" icon="chevronRight" onClick={()=>setMealIndex(activeMeal+1)}>Next: {day.meals[activeMeal+1].name}</Button>}
+      </div>}
       <Card className="p-3">
         <Field label="Notes on this food history">
           <AutoTextarea value={draft.note ?? ''} onChange={(v) => update((a) => ({ ...a, note: v }))} placeholder="Who reported it, how typical the days were, anything that affects interpretation…" />
@@ -562,7 +648,7 @@ export default function AssessmentPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Icon name={finalised ? 'lock' : 'edit'} className={finalised ? 'text-good-ink' : 'text-muted'} />
         <span className="text-[13.5px] font-semibold">{draft.scenarioOf ? 'Planning scenario' : finalised ? 'Finalised: read only' : draft.amendmentOf ? 'Amendment draft' : 'Draft'}</span>
-        <span className="text-[12.5px] text-ink-2">· {analysis.result.nDays} completed day{analysis.result.nDays === 1 ? '' : 's'}{finalised && draft.snapshot ? ` · finalised ${new Date(draft.snapshot.finalisedAt).toLocaleDateString('en-GB')}` : ''}</span>
+        <span className="text-[12.5px] text-ink-2">· {analysis.result.nDays} confirmed day{analysis.result.nDays === 1 ? '' : 's'}{finalised && draft.snapshot ? ` · finalised ${new Date(draft.snapshot.finalisedAt).toLocaleDateString('en-GB')}` : ''}</span>
         <div className="ml-auto flex flex-wrap gap-1.5">
           {!finalised ? (
             <Button size="sm" variant="primary" icon="lock" disabled={!!whyBlocked || finalising} aria-describedby="finalise-help" onClick={() => void finalise()}>{finalising ? 'Finalising…' : 'Finalise'}</Button>
@@ -575,7 +661,8 @@ export default function AssessmentPage() {
           )}
         </div>
       </div>
-      {!finalised && <p id="finalise-help" className="mt-1.5 text-[12.5px] text-ink-2" role="status">{whyBlocked || 'Ready to finalise. You can preview both reports first.'}</p>}
+      {!finalised && <p id="finalise-help" className="mt-1.5 text-[12.5px] text-ink-2" role="status">{whyBlocked || 'Ready to finalise. Finalising locks these confirmed entries and enables PDF downloads.'}</p>}
+      {!finalised && nextDay && !savingDay && <Button size="sm" className="mt-2" onClick={()=>chooseDay(draft.days.indexOf(nextDay))}>Go to {nextDay.label}</Button>}
       <label className="mt-2 flex items-center gap-2 text-[13px]">
         <input type="checkbox" className="h-4 w-4 accent-[var(--ink)]" disabled={locked} checked={draft.unquantifiedBreastMilk ?? false} onChange={(e) => update((a) => ({ ...a, unquantifiedBreastMilk: e.target.checked }))} />
         Breastfeeding recorded, volume unknown <span className="text-muted">(marks every total as a minimum)</span>
@@ -587,7 +674,7 @@ export default function AssessmentPage() {
   )
   const results =
     analysis.result.nDays === 0 ? (
-      <div className="space-y-3">{review}<Card className="p-6 text-center text-[13px] text-ink-2">Tick “Day complete” once a day’s foods and amounts are entered to see its analysis here.</Card></div>
+      <div className="space-y-3">{review}<Card className="p-6 text-center text-[13px] text-ink-2">Confirm a day to include it in the client’s intake analysis. Use Analyse day to preview entered amounts at any point.</Card></div>
     ) : (
       <div className="space-y-3">
         {review}
@@ -629,7 +716,7 @@ export default function AssessmentPage() {
         </Link>
         <input aria-label="Title" disabled={locked} value={draft.title} onChange={(e) => update((a) => ({ ...a, title: e.target.value }))} className="h-8 min-w-[10rem] flex-1 rounded-lg border border-transparent bg-transparent px-1.5 text-[15px] font-semibold hover:border-line focus:border-accent focus:bg-surface focus:outline-none" />
         <input aria-label="Date of the food history" type="date" disabled={locked} value={draft.date} onChange={(e) => e.target.value && update((a) => ({ ...a, date: e.target.value }))} className="h-8 rounded-lg border border-line bg-surface px-2 text-[13px] focus:border-accent focus:outline-none" />
-        <span className={cx('text-[12px]', saveFailed ? 'text-critical-ink' : 'text-muted')} aria-live="polite">{saveFailed ? 'Not saved' : saved ? 'Saved' : 'Saving…'}</span>
+        <span className={cx('text-[12px]', saveFailed ? 'text-critical-ink' : 'text-muted')} aria-live="polite">{saveFailed ? 'Changes not saved' : savingDay ? 'Saving day…' : saved ? (finalised ? 'Final record saved' : 'Draft saved') : 'Saving draft…'}</span>
         {saveFailed && <Button size="sm" onClick={() => void retrySave()}>Retry save</Button>}
         <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" icon="file" disabled={saveFailed || finalising} onClick={() => void openReport('parent')}>{finalised ? 'Parent summary' : 'Preview parent summary'}</Button>
@@ -652,9 +739,9 @@ export default function AssessmentPage() {
         <span className="text-[12.5px] text-ink-2">{usual ? 'One typical day as the family describes it. Set how often for foods not eaten every day; everything is scaled to a daily average.' : 'What was actually eaten on each recorded day. The days are averaged.'}</span>
       </div>
 
-      <Tabs className="mb-3 lg:hidden" value={pane} onChange={setPane} tabs={[{ id: 'entry', label: 'Food entry', count: analysis.result.itemCount }, { id: 'analysis', label: 'Analysis' }]} />
+      <Tabs className="mb-3 lg:hidden" value={pane} onChange={setPane} tabs={[{ id: 'entry', label: 'Food entry', count: analysis.result.itemCount }, { id: 'analysis', label: 'Review & finalise' }]} />
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-        <div className={cx(pane === 'entry' ? 'block' : 'hidden', 'lg:block')}><fieldset disabled={locked} className="min-w-0">{entry}</fieldset></div>
+        <div className={cx(pane === 'entry' ? 'block' : 'hidden', 'lg:block')}><div className="mb-3 space-y-2">{dayNav}{locked && mealNav}</div><fieldset disabled={locked} className="min-w-0">{entry}</fieldset></div>
         <div className={cx(pane === 'analysis' ? 'block' : 'hidden', 'scroll-thin lg:sticky lg:top-3 lg:block lg:max-h-[calc(100dvh-1.5rem)] lg:self-start lg:overflow-y-auto lg:pr-1')}>{results}</div>
       </div>
 

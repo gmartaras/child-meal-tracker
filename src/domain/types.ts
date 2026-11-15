@@ -176,6 +176,7 @@ export const FOOD_GROUPS = [
 
 export interface AcceptedFood {
   id: string
+  foodId?: string
   name: string
   group: number // index into FOOD_GROUPS
   addedOn: string
