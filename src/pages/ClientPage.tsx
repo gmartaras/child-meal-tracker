@@ -223,6 +223,76 @@ function NutritionSnapshot({ client, snaps, onExplore }: { client: Client; snaps
   )
 }
 
+const DAY_MS = 86_400_000
+const daysBetween = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / DAY_MS)
+function ago(days: number): string {
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 14) return `${days} days ago`
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`
+  return `${Math.round(days / 30.4)} months ago`
+}
+
+/** How often and when the family has been seen: counts, a timeline and the most recent sessions. */
+function SessionHistory({ sessions, onOpen, onNew }: { sessions: Session[]; onOpen: () => void; onNew: () => void }) {
+  const today = todayISO()
+  if (!sessions.length) {
+    return (
+      <Card className="p-4">
+        <h2 className="text-[13px] font-semibold">Sessions with the family</h2>
+        <p className="mt-1 text-[13px] text-muted">No sessions recorded yet.</p>
+        <Button size="sm" icon="plus" className="mt-2" onClick={onNew}>New session note</Button>
+      </Card>
+    )
+  }
+  const asc = [...sessions].sort((a, b) => a.date.localeCompare(b.date))
+  const first = asc[0].date
+  const last = asc[asc.length - 1].date
+  const span = Math.max(daysBetween(first, today), 1)
+  const gaps = asc.slice(1).map((s, i) => daysBetween(asc[i].date, s.date))
+  const avgGap = gaps.length ? gaps.reduce((n, g) => n + g, 0) / gaps.length : null
+  const kinds = SESSION_KINDS.map((k) => ({ k, n: sessions.filter((s) => (s.kind ?? 'Other') === k).length })).filter((x) => x.n)
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h2 className="text-[13px] font-semibold">Sessions with the family</h2>
+        <button type="button" className="text-[12.5px] font-medium text-accent-ink hover:underline" onClick={onOpen}>All notes</button>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg border border-line px-2 py-1.5"><div className="tnum text-lg font-semibold">{sessions.length}</div><div className="text-[11px] text-muted">session{sessions.length === 1 ? '' : 's'}</div></div>
+        <div className="rounded-lg border border-line px-2 py-1.5"><div className="text-[13px] leading-7 font-semibold">{daysBetween(last, today) <= 1 ? ago(daysBetween(last, today)) : ago(daysBetween(last, today)).replace(' ago', '')}</div><div className="text-[11px] text-muted">{daysBetween(last, today) <= 1 ? 'last contact' : 'since last contact'}</div></div>
+        <div className="rounded-lg border border-line px-2 py-1.5"><div className="text-[13px] leading-7 font-semibold">{avgGap != null ? (avgGap < 14 ? `${Math.round(avgGap)} days` : `${fmt(avgGap / 7, 0)} weeks`) : '–'}</div><div className="text-[11px] text-muted">typical gap</div></div>
+      </div>
+      <div className="relative mt-4 mb-1 h-6" role="img" aria-label={`${sessions.length} sessions from ${formatDate(first)} to ${formatDate(last)}`}>
+        <div className="absolute inset-x-0 top-2.5 h-px bg-line-strong" />
+        {asc.map((s) => (
+          <span key={s.id} title={`${formatDate(s.date)} · ${s.kind ?? 'Session'}`} className={cx('absolute top-1 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-surface', s.kind === 'Initial consultation' ? 'bg-accent' : s.kind === 'Follow-up' ? 'bg-series-1' : 'bg-muted')} style={{ left: `${(daysBetween(first, s.date) / span) * 100}%` }} />
+        ))}
+        <span className="absolute top-0 right-0 h-6 w-px bg-ink" title="Today" />
+      </div>
+      <div className="flex justify-between text-[11px] text-muted"><span>{formatDate(first)}</span><span>today</span></div>
+      <ul className="mt-3 divide-y divide-line text-[12.5px]">
+        {sessions.slice(0, 5).map((s) => {
+          const has = Object.values(s.sections ?? {}).some(Boolean) || !!s.note
+          return (
+            <li key={s.id}>
+              <button type="button" onClick={onOpen} className="flex w-full items-baseline gap-2 py-1.5 text-left hover:text-ink">
+                <span className="tnum w-24 shrink-0 font-medium">{formatDate(s.date)}</span>
+                <span className="min-w-0 flex-1 truncate text-ink-2">{s.kind ?? 'Session'}</span>
+                {s.weightKg != null && <span className="tnum shrink-0 text-muted">{fmt(s.weightKg, 1)} kg</span>}
+                {s.sections?.actions && <span className="shrink-0 rounded bg-surface-2 px-1 text-[11px] text-ink-2" title="Actions agreed">actions</span>}
+                {!has && <span className="shrink-0 text-[11px] text-muted">no notes</span>}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {sessions.length > 5 && <p className="mt-1 text-[11.5px] text-muted">+ {sessions.length - 5} earlier</p>}
+      <p className="mt-2 text-[11.5px] text-muted">{kinds.map((x) => `${x.n} ${x.k.toLowerCase()}`).join(' · ')} · first seen {ago(daysBetween(first, today))}</p>
+    </Card>
+  )
+}
+
 function GrowthAndRange({ client, sessions }: { client: Client; sessions: Session[] }) {
   const weights: TrendPoint[] = sessions.filter((s) => s.weightKg != null).map((s) => ({ date: s.date, value: s.weightKg!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
   const heights: TrendPoint[] = sessions.filter((s) => s.heightCm != null).map((s) => ({ date: s.date, value: s.heightCm!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
@@ -540,6 +610,7 @@ export default function ClientPage() {
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <div className="space-y-4">
+            <KeyContext client={client} />
             <NutritionSnapshot client={client} snaps={snaps} onExplore={explore} />
             {latestActions && (
               <Card className="p-4">
@@ -552,9 +623,9 @@ export default function ClientPage() {
             )}
           </div>
           <div className="space-y-4">
+            <SessionHistory sessions={sessions} onOpen={() => setTab('sessions')} onNew={newSession} />
             <GrowthAndRange client={client} sessions={sessions} />
             <Checklist client={client} />
-            <KeyContext client={client} />
             <RecordDetails client={client} onEdit={() => setModal('edit')} />
             {!!client.resources?.length && <ClientResources key={`resources-${client.id}`} client={client} />}
           </div>
