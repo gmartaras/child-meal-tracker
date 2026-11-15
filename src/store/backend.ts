@@ -5,8 +5,8 @@
  */
 import firebaseConfig from '../../firebase.config.json'
 
-export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta'
-export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta']
+export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta' | 'audit'
+export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta', 'audit']
 
 export interface Doc {
   id: string
@@ -32,6 +32,24 @@ export interface Backend {
 
 const cfg = firebaseConfig as Record<string, string>
 export const cloudConfigured = Boolean(cfg.apiKey && cfg.projectId)
+
+/** On a shared or borrowed device, keep nothing on disk: records are held in memory only while the app is open. */
+const NO_CACHE_KEY = 'mealtrace:no-offline-copy'
+export const offlineCopyDisabled = () => {
+  try {
+    return localStorage.getItem(NO_CACHE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+export const setOfflineCopyDisabled = (off: boolean) => {
+  try {
+    if (off) localStorage.setItem(NO_CACHE_KEY, '1')
+    else localStorage.removeItem(NO_CACHE_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 // ---------------- local ----------------
 
@@ -90,9 +108,11 @@ async function cloudBackend(): Promise<Backend> {
   ])
   const app = initializeApp(cfg)
   const a = auth.getAuth(app)
-  // Offline cache: the app keeps working without signal and syncs when back online.
+  // Offline copy: the app keeps working without signal and syncs when back online.
+  // It is switched off on shared devices and wiped on sign-out (see signOut below).
+  const persistent = !offlineCopyDisabled()
   const db = fs.initializeFirestore(app, {
-    localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }),
+    localCache: persistent ? fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) : fs.memoryLocalCache(),
     ignoreUndefinedProperties: true,
   })
   const path = (coll: Coll) => {
@@ -115,6 +135,14 @@ async function cloudBackend(): Promise<Backend> {
     },
     async signOut() {
       await auth.signOut(a)
+      // remove the offline copy of client records from this device, then start clean
+      try {
+        await fs.terminate(db)
+        if (persistent) await fs.clearIndexedDbPersistence(db)
+      } catch (e) {
+        console.warn('Could not clear the offline copy', e)
+      }
+      window.location.reload()
     },
     watch(coll, cb, onError) {
       return fs.onSnapshot(

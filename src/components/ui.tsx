@@ -79,20 +79,22 @@ export function IconButton({ icon, label, className, ...rest }: ButtonHTMLAttrib
 }
 
 // ---------- form controls ----------
-const control = 'w-full rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-50'
+/** `w-full` unless the caller sets its own width class (two width utilities on one element would conflict) */
+const width = (className?: string) => (className && /(^|\s)(w-|max-w-\[)/.test(className) && /(^|\s)w-/.test(className) ? '' : 'w-full')
+const control = 'rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-50'
 
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...rest} className={cx(control, 'h-9', className)} />
+  return <input {...rest} className={cx(width(className), control, 'h-9', className)} />
 }
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...rest} className={cx(control, 'h-9 pr-7', className)}>
+    <select {...rest} className={cx(width(className), control, 'h-9 pr-7', className)}>
       {children}
     </select>
   )
 }
 export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...rest} className={cx(control, 'py-2 leading-relaxed', className)} />
+  return <textarea {...rest} className={cx(width(className), control, 'py-2 leading-relaxed', className)} />
 }
 
 export function Field({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
@@ -114,7 +116,7 @@ export function AutoTextarea({ value, onChange, className, minRows = 2, ...rest 
     el.style.height = 'auto'
     el.style.height = el.scrollHeight + 2 + 'px'
   }, [value])
-  return <textarea ref={ref} rows={minRows} value={value} onChange={(e) => onChange(e.target.value)} {...rest} className={cx(control, 'resize-none py-2 leading-relaxed', className)} />
+  return <textarea ref={ref} rows={minRows} value={value} onChange={(e) => onChange(e.target.value)} {...rest} className={cx(width(className), control, 'resize-none py-2 leading-relaxed', className)} />
 }
 
 // ---------- surfaces ----------

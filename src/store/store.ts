@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { uid } from '../domain/age'
 import { setCustomFoods } from '../domain/foods'
 import { CORE_IDS } from '../domain/nutrients'
-import type { Assessment, Client, CustomFood, Session, Settings } from '../domain/types'
+import { DEFAULT_CHECKLIST, MEAL_NAMES, type Assessment, type Client, type CustomFood, type Session, type Settings } from '../domain/types'
 import { COLLS, createBackend, type AuthUser, type Backend, type Coll, type Doc } from './backend'
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -16,7 +16,18 @@ export const DEFAULT_SETTINGS: Settings = {
   recents: [],
   favourites: [],
   nextClientNo: 1,
+  mealNames: [...MEAL_NAMES],
+  checklist: [...DEFAULT_CHECKLIST],
+  autoLockMin: 30,
+  retentionAge: 25,
   updatedAt: 0,
+}
+
+export interface AuditEntry {
+  id: string
+  at: number
+  action: 'sign-in' | 'export' | 'erase' | 'backup' | 'restore' | 'auto-sign-out'
+  detail: string
 }
 
 /** Editable starting points, created once. Composition as published for the product; check before use. */
@@ -56,7 +67,10 @@ interface State {
   sessions: Session[]
   assessments: Assessment[]
   foods: CustomFood[]
+  audit: AuditEntry[]
   settings: Settings
+  /** append to the access log: who exported, erased or restored what, and when (no clinical content) */
+  logAudit(action: AuditEntry['action'], detail: string): void
   init(): Promise<void>
   signIn(): Promise<void>
   signOut(): Promise<void>
@@ -114,10 +128,12 @@ export const useStore = create<State>((set, get) => {
             if (coll === 'meta') {
               const s = docs.find((d) => d.id === 'settings') as unknown as Settings | undefined
               set({ settings: { ...DEFAULT_SETTINGS, ...(s ?? {}), bm: { ...DEFAULT_SETTINGS.bm, ...(s?.bm ?? {}) } } })
+            } else if (coll === 'audit') {
+              set({ audit: (docs as unknown as AuditEntry[]).sort((a, b) => b.at - a.at) })
             } else if (coll === 'foods') {
               const foods = docs as unknown as CustomFood[]
               setCustomFoods(foods)
-              set({ foods: [...foods].sort((a, b) => a.name.localeCompare(b.name)) })
+              set({ foods: [...foods].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')) })
             } else {
               set({ [coll]: docs } as unknown as Partial<State>)
             }
@@ -141,7 +157,12 @@ export const useStore = create<State>((set, get) => {
     sessions: [],
     assessments: [],
     foods: [],
+    audit: [],
     settings: DEFAULT_SETTINGS,
+
+    logAudit(action, detail) {
+      put('audit', { id: uid(), at: Date.now(), action, detail })
+    },
 
     async init() {
       if (backend) return
@@ -156,10 +177,11 @@ export const useStore = create<State>((set, get) => {
         if (user) {
           set({ user, phase: 'loading' })
           startWatching()
+          if (backend!.mode === 'cloud') get().logAudit('sign-in', navigator.userAgent.replace(/\s*\(.*?\)/, '').slice(0, 80))
         } else {
           unsubs.forEach((u) => u())
           unsubs = []
-          set({ user: null, phase: 'signin', clients: [], sessions: [], assessments: [], foods: [], settings: DEFAULT_SETTINGS })
+          set({ user: null, phase: 'signin', clients: [], sessions: [], assessments: [], foods: [], audit: [], settings: DEFAULT_SETTINGS })
         }
       })
     },

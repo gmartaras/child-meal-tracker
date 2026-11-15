@@ -100,7 +100,30 @@ export function Layout({ children }: { children: ReactNode }) {
   const signOut = useStore((s) => s.signOut)
   const practice = useStore((s) => s.settings.practiceName)
   const loc = useLocation()
-  const isReport = /\/report\//.test(loc.pathname)
+  const isReport = /\/(report|print)\//.test(loc.pathname)
+  const autoLockMin = useStore((s) => s.settings.autoLockMin) ?? 30
+  const logAudit = useStore((s) => s.logAudit)
+
+  // Sign out after a period without any activity, so an unattended device does not stay open on client records.
+  useEffect(() => {
+    if (mode !== 'cloud' || !(autoLockMin > 0)) return
+    let last = Date.now()
+    const touch = () => {
+      last = Date.now()
+    }
+    const events = ['pointerdown', 'keydown', 'scroll', 'visibilitychange'] as const
+    events.forEach((e) => window.addEventListener(e, touch, { passive: true, capture: true }))
+    const timer = setInterval(() => {
+      if (Date.now() - last > autoLockMin * 60_000) {
+        logAudit('auto-sign-out', `after ${autoLockMin} minutes without activity`)
+        void signOut()
+      }
+    }, 20_000)
+    return () => {
+      clearInterval(timer)
+      events.forEach((e) => window.removeEventListener(e, touch, { capture: true }))
+    }
+  }, [mode, autoLockMin, signOut, logAudit])
   useEffect(() => setDrawer(false), [loc.pathname])
 
   if (isReport) return <>{children}</>
@@ -119,14 +142,17 @@ export function Layout({ children }: { children: ReactNode }) {
         </NavLink>
         <IconButton icon="x" label="Close menu" className="ml-auto lg:hidden" onClick={() => setDrawer(false)} />
       </div>
+      <div className="px-2 pb-2">
+        <NavLink to="/" end className={navItem}><Icon name="users" /> All clients</NavLink>
+        <NavLink to="/foods" className={navItem}><Icon name="apple" /> Food library</NavLink>
+      </div>
       <ClientList onNavigate={() => setDrawer(false)} />
       <div className="border-t border-line p-2">
-        <NavLink to="/foods" className={navItem}><Icon name="apple" /> My foods &amp; supplements</NavLink>
         <NavLink to="/settings" className={navItem}><Icon name="settings" /> Settings</NavLink>
         <div className="mt-1 flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted">
           <Icon name={mode === 'cloud' ? 'cloud' : 'cloudOff'} size={14} className={mode === 'cloud' && synced ? 'text-good-ink' : ''} />
           <span className="min-w-0 flex-1 truncate" title={user?.email}>
-            {mode === 'cloud' ? (synced ? `Synced · ${user?.email}` : 'Working offline · will sync') : 'This browser only'}
+            {mode === 'cloud' ? (synced ? `Saved to cloud · ${user?.email}` : 'Working offline · will sync') : 'This browser only'}
           </span>
           {mode === 'cloud' && <button type="button" onClick={() => signOut()} title="Sign out" aria-label="Sign out" className="hover:text-ink"><Icon name="logout" size={14} /></button>}
         </div>

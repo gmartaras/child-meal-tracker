@@ -69,7 +69,7 @@ export default function ReportPage() {
   const withTarget = shown.filter((n) => targets[n.id])
   const status = (nid: string) => statusOf(result.avg[nid].v, targets[nid])
   const session = [...sessions].filter((s) => s.clientId === client.id && s.date <= a.date).sort((x, y) => y.date.localeCompare(x.date))[0]
-  const basisText = a.type === 'diary' ? `the average of ${result.nDays} recorded day${result.nDays === 1 ? '' : 's'}` : a.type === 'typical' ? 'a typical day as described' : 'usual foods and how often they are eaten'
+  const basisText = a.type === 'diary' ? `the average of ${result.nDays} recorded day${result.nDays === 1 ? '' : 's'}` : 'a typical day as described'
   const flagged = withTarget.filter((n) => ['low', 'below'].includes(status(n.id)) && n.id !== 'energy')
   const saveAdvice = () => advice !== (a.parentNote ?? '') && saveAssessment({ ...a, parentNote: advice })
 
@@ -275,6 +275,7 @@ export default function ReportPage() {
                         {it.name}: <span className="tnum">{it.measure === it.unit ? `${num(it.amount)} ${it.unit}` : `${num(it.qty)} × ${it.measure}${/\d\s*(g|ml)\)/.test(it.measure) && it.qty === 1 ? '' : ` (${num(it.amount)} ${it.unit})`}`}</span>
                         {it.freq && <span className="text-ink-2">, {it.freq.times} × per {it.freq.per}</span>}
                         {it.estimate && <span className="text-ink-2"> [estimated]</span>}
+                        {it.refused && <span className="text-ink-2"> [offered, not eaten]</span>}
                       </li>
                     ))}
                   </ul>

@@ -35,6 +35,11 @@ export function previousAssessment(a: Assessment, all: Assessment[]): Assessment
 
 export const TYPE_LABEL: Record<Assessment['type'], string> = {
   diary: 'Food diary',
-  typical: 'Typical day',
-  ffq: 'Food frequency',
+  usual: 'Usual intake',
+  typical: 'Usual intake',
+  ffq: 'Usual intake',
+}
+
+export function isUsual(a: Pick<Assessment, 'type'>): boolean {
+  return a.type !== 'diary'
 }

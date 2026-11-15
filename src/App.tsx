@@ -5,8 +5,9 @@ import { Button } from './components/ui'
 import { loadCofid } from './domain/foods'
 import AssessmentPage from './pages/AssessmentPage'
 import ClientPage from './pages/ClientPage'
-import FoodsPage from './pages/FoodsPage'
+import LibraryPage from './pages/LibraryPage'
 import HomePage from './pages/HomePage'
+import PrintDocPage from './pages/PrintDocPage'
 import ReportPage from './pages/ReportPage'
 import SettingsPage from './pages/SettingsPage'
 import { useStore } from './store/store'
@@ -60,7 +61,8 @@ export default function App() {
           <Route path="/c/:id" element={<ClientPage />} />
           <Route path="/c/:id/a/:aid" element={<AssessmentPage />} />
           <Route path="/c/:id/report/:aid/:kind" element={<ReportPage />} />
-          <Route path="/foods" element={<FoodsPage />} />
+          <Route path="/c/:id/print/:doc" element={<PrintDocPage />} />
+          <Route path="/foods" element={<LibraryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -19,7 +19,7 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
   const nutrients = NUTRIENTS.filter((x) => settings.panel.includes(x.id))
 
   const summary: Cell[][] = [[h('Date'), h('Food history'), h('Type'), h('Age'), h('Days'), h('Nutrient'), h('Unit'), h('Daily intake'), h('From supplements'), h('Target'), h('Target type'), h('LRNI'), h('% of target'), h('Status'), h('Foods without a value')]]
-  const items: Cell[][] = [[h('Date'), h('Food history'), h('Day'), h('Meal'), h('Food'), h('Quantity'), h('Measure'), h('Amount'), h('Unit'), h('Frequency'), h('Estimated'), h('Energy (kcal/day)')]]
+  const items: Cell[][] = [[h('Date'), h('Food history'), h('Day'), h('Meal'), h('Food'), h('Quantity'), h('Measure'), h('Amount'), h('Unit'), h('Frequency'), h('Estimated'), h('Eaten'), h('Energy (kcal/day)')]]
   for (const a of list) {
     const an = analyse(a, client, settings)
     for (const nu of nutrients) {
@@ -38,7 +38,7 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
           const k = f ? rawValue(f, 'energy').v : null
           items.push([
             t(a.date), t(a.title), t(d.label), t(m.name), t(it.name), n(it.qty), t(it.measure), n(it.amount), t(it.unit),
-            t(it.freq ? `${it.freq.times} per ${it.freq.per}` : ''), t(it.estimate ? 'yes' : ''), n(k != null && f ? (k * dailyAmount(it)) / f.per : null, '0'),
+            t(it.freq ? `${it.freq.times} per ${it.freq.per}` : ''), t(it.estimate ? 'yes' : ''), t(it.refused ? 'offered, not eaten' : 'yes'), n(k != null && f ? (k * dailyAmount(it)) / f.per : null, '0'),
           ])
         }
       }
@@ -64,7 +64,56 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
   downloadBlob(file, `${client.code}-${client.firstName}-nutrition.xlsx`.replace(/[^\w.\-]+/g, '_'))
 }
 
-export function downloadBackup(b: Backup): void {
-  const blob = new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' })
-  downloadBlob(blob, `mealtrace-backup-${b.exportedAt.slice(0, 10)}.json`)
+/** Everything held about one child, in a portable format: for a subject access or portability request. */
+export function exportClientJson(client: Client, assessments: Assessment[], sessions: Session[]): void {
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), client, sessions, foodHistories: assessments }, null, 1)], { type: 'application/json' })
+  downloadBlob(blob, `${client.code}-full-record.json`.replace(/[^\w.\-]+/g, '_'))
+}
+
+// ---------- backups ----------
+const b64 = (buf: ArrayBuffer | Uint8Array) => {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  let s = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(s)
+}
+const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+
+async function keyFrom(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt as BufferSource, iterations: 310_000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+}
+
+export interface EncryptedBackup {
+  app: 'mealtrace'
+  encrypted: true
+  exportedAt: string
+  salt: string
+  iv: string
+  data: string
+}
+
+/** Download every record as one file. With a password the file is encrypted (AES-256-GCM) and unreadable without it. */
+export async function downloadBackup(b: Backup, password?: string): Promise<void> {
+  const name = `mealtrace-backup-${b.exportedAt.slice(0, 10)}`
+  if (!password) return downloadBlob(new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' }), `${name}.json`)
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, await keyFrom(password, salt), new TextEncoder().encode(JSON.stringify(b)))
+  const file: EncryptedBackup = { app: 'mealtrace', encrypted: true, exportedAt: b.exportedAt, salt: b64(salt), iv: b64(iv), data: b64(data) }
+  downloadBlob(new Blob([JSON.stringify(file)], { type: 'application/json' }), `${name}-encrypted.json`)
+}
+
+/** Read a backup file, asking for the password only if it is encrypted. */
+export async function readBackup(text: string, askPassword: () => string | null): Promise<Backup> {
+  const parsed = JSON.parse(text) as Backup | EncryptedBackup
+  if (!('encrypted' in parsed)) return parsed
+  const password = askPassword()
+  if (!password) throw new Error('A password is needed to open this backup.')
+  try {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(parsed.iv) as BufferSource }, await keyFrom(password, unb64(parsed.salt)), unb64(parsed.data) as BufferSource)
+    return JSON.parse(new TextDecoder().decode(plain)) as Backup
+  } catch {
+    throw new Error('That password does not open this backup.')
+  }
 }

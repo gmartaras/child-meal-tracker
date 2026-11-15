@@ -1,15 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in user can only read and write their own records.
-    // Replace YOUR_EMAIL_ADDRESS with the Google account you sign in with, so that
-    // nobody else can store anything in this project even if they find the web address.
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null
-                         && request.auth.uid == uid
-                         && request.auth.token.email == "YOUR_EMAIL_ADDRESS"
-                         && request.auth.token.email_verified == true;
+    // Only the practitioner's own Google account may use this database, and each account
+    // can only reach its own records. Replace YOUR_EMAIL_ADDRESS before publishing.
+    // Do not commit a real email address to a public repository: publish the rules from
+    // the Firebase console (Firestore → Rules) instead.
+    function isPractitioner(uid) {
+      return request.auth != null
+          && request.auth.uid == uid
+          && request.auth.token.email_verified == true
+          && request.auth.token.email in ["YOUR_EMAIL_ADDRESS"];
     }
+
+    match /users/{uid}/{collection}/{docId} {
+      allow read: if isPractitioner(uid);
+      // records can be created, changed and deleted...
+      allow create: if isPractitioner(uid);
+      allow update, delete: if isPractitioner(uid) && collection != "audit";
+      // ...except the access log, which can only be added to
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
