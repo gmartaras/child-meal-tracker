@@ -89,6 +89,7 @@ interface State {
   clearError(): void
 }
 
+const REQUIRED = COLLS.filter((c) => c !== 'audit')
 let backend: Backend | null = null
 let unsubs: (() => void)[] = []
 
@@ -111,8 +112,9 @@ export const useStore = create<State>((set, get) => {
     const loaded = new Set<Coll>()
     const confirmed = new Set<Coll>()
     const maybeReady = () => {
-      if (loaded.size === COLLS.length && get().phase !== 'ready') set({ phase: 'ready' })
-      set({ synced: confirmed.size === COLLS.length })
+      // the access log is optional: where the database rules do not allow it, the app still loads and saves
+      if (loaded.size === REQUIRED.length && get().phase !== 'ready') set({ phase: 'ready' })
+      set({ synced: confirmed.size === REQUIRED.length })
       // create the starter supplements once the server has confirmed there are no settings yet
       if (confirmed.has('meta') && confirmed.has('foods') && !get().settings.seeded) {
         const existing = new Set(get().foods.map((f) => f.id))
@@ -137,11 +139,13 @@ export const useStore = create<State>((set, get) => {
             } else {
               set({ [coll]: docs } as unknown as Partial<State>)
             }
-            loaded.add(coll)
-            if (!fromCache) confirmed.add(coll)
+            if (coll !== 'audit') {
+              loaded.add(coll)
+              if (!fromCache) confirmed.add(coll)
+            }
             maybeReady()
           },
-          fail,
+          coll === 'audit' ? (e) => console.info('Access log unavailable:', e.message) : fail,
         ),
       )
     }
@@ -161,7 +165,8 @@ export const useStore = create<State>((set, get) => {
     settings: DEFAULT_SETTINGS,
 
     logAudit(action, detail) {
-      put('audit', { id: uid(), at: Date.now(), action, detail })
+      const entry: AuditEntry = { id: uid(), at: Date.now(), action, detail }
+      backend?.put('audit', entry).catch(() => {})
     },
 
     async init() {
