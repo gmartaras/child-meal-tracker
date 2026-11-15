@@ -207,3 +207,30 @@ test('links a legacy accepted food and logs it from the horizontal meal navigato
   await expect(page.getByText(/Confirm or exclude Day 2, Day 3/)).toBeVisible()
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
+
+test('uses a branded label portion in a diary and retains the consulted source', async ({ page }) => {
+  await page.goto('/?demo=1#/foods')
+  await page.getByRole('button',{name:/UK branded foods/}).click()
+  await page.getByLabel('Search the food library').fill('weetabix original')
+  await page.getByRole('button',{name:/Weetabix Original/}).first().click()
+  await expect(page.getByRole('link',{name:'View manufacturer label'})).toHaveAttribute('href',/weetabix\.co\.uk/)
+  await expect(page.getByText('Folic acid (label)')).toBeVisible()
+  await expect(page.getByText('one biscuit',{exact:true})).toBeVisible()
+
+  await page.evaluate(() => {
+    localStorage.setItem('mealtrace:clients', JSON.stringify([{id:'a', firstName:'Synthetic Alice', code:'BRAND-TEST',
+      dob:'2024-01-01', sex:'F', feeding:'na', context:'', createdAt:1, updatedAt:1}]))
+  })
+  await page.goto('/?demo=1#/c/a')
+  await page.reload()
+  await page.getByRole('button',{name:'Food history',exact:true}).first().click()
+  await page.getByRole('combobox',{name:'Add to breakfast…'}).fill('weetabix original')
+  await page.getByRole('option',{name:/Weetabix Original/}).click()
+  await expect(page.getByLabel('Quantity of Weetabix Original')).toHaveValue('1')
+  await page.getByRole('button',{name:'Confirm and save day'}).click()
+  await expect(page.getByText('Confirmed in client record')).toBeVisible()
+  const foods = await page.evaluate(() => JSON.parse(localStorage.getItem('mealtrace:assessments')!)[0].days[0].meals[0].items)
+  expect(foods[0].amount).toBe(18.75)
+  expect(foods[0].snap.labelSource.version).toBe('uk-branded-2026-11-15.1')
+  expect(foods[0].snap.values.energy).toBe(362)
+})

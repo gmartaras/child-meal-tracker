@@ -222,3 +222,33 @@ describe('library', () => {
     expect(r.itemCount).toBe(1)
   })
 })
+
+describe('UK branded label foods', () => {
+  it('finds exact branded cereals alongside the generic CoFID equivalents', () => {
+    expect(searchFoods('weetabix original')[0]?.id).toBe('b:weetabix-original')
+    expect(searchFoods('shredded wheat original')[0]?.id).toBe('b:nestle-shredded-wheat-original')
+    expect(searchFoods('rice krispies original')[0]?.id).toBe('b:kelloggs-rice-krispies')
+    expect(getFood('c:11-773')?.values.energy).toBe(332)
+  })
+
+  it('scales declared nutrients from the published biscuit weight and preserves gaps', () => {
+    const wheat = getFood('b:weetabix-original')!
+    const two = measuresFor(wheat).find(m => m.label === 'two biscuits')!
+    expect(two.amount).toBe(37.5)
+    const result = computeAssessment({days:[day('1',[item(wheat.id,two.amount)])]})
+    expect(result.avg.energy.v).toBeCloseTo(135.75)
+    expect(result.avg.iron.v).toBeCloseTo(4.5)
+    expect(result.avg.iodine.missing).toEqual([wheat.name])
+    expect(result.avg.folate.missing).toEqual([wheat.name])
+    expect(wheat.labelSource!.publisher).toBe('manufacturer')
+  })
+
+  it('does not convert declared less-than bounds into exact or zero amounts', () => {
+    const mini = getFood('b:babybel-mini-original')!
+    expect(mini.labelSource?.bounds?.sugars).toBe('<0.01')
+    expect(rawValue(mini,'sugars').v).toBeNull()
+    const result = computeAssessment({days:[day('1',[item(mini.id,20)])]})
+    expect(result.avg.calcium.v).toBe(136)
+    expect(result.avg.sugars.missing).toEqual([mini.name])
+  })
+})

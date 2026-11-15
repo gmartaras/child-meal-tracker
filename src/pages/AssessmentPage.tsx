@@ -340,7 +340,7 @@ export default function AssessmentPage() {
     // freeze every food's values and the analysis exactly as they stand now
     const frozen: Assessment = {
       ...draft,
-      days: draft.days.map((d) => ({ ...d, meals: d.meals.map((m) => ({ ...m, items: m.items.map((i) => { const f = foodOf(i); return f ? { ...i, snap: { kind: f.kind, sourceFoodId: f.sourceFoodId, infantFormula: f.infantFormula, per: f.per, values: { ...f.values }, partial: f.partial } } : i }) })) })),
+      days: draft.days.map((d) => ({ ...d, meals: d.meals.map((m) => ({ ...m, items: m.items.map((i) => { const f = foodOf(i); return f ? { ...i, snap: { kind: f.kind, labelSource: f.labelSource, sourceFoodId: f.sourceFoodId, infantFormula: f.infantFormula, per: f.per, values: { ...f.values }, partial: f.partial } } : i }) })) })),
       state: 'finalised',
       snapshot: {
         analysis: JSON.parse(JSON.stringify(analysis)),
@@ -400,7 +400,7 @@ export default function AssessmentPage() {
     const m = food.id === BREAST_MILK_ID || perOne ? measures[0] : (household ?? measures[0])
     const base = m.label === food.unit && !perOne
     // anything the practitioner can edit is frozen at the moment it is logged
-    const snap = custom ? { kind: custom.kind, sourceFoodId: custom.sourceFoodId, infantFormula: custom.infantFormula, per: custom.per, values: custom.values, partial: custom.partial } : food.edited ? { kind: food.kind, per: food.per, values: food.values } : undefined
+    const snap = custom ? { kind: custom.kind, sourceFoodId: custom.sourceFoodId, infantFormula: custom.infantFormula, per: custom.per, values: custom.values, partial: custom.partial } : food.edited || food.labelSource ? { kind: food.kind, labelSource: food.labelSource, per: food.per, values: { ...food.values } } : undefined
     const item: Item = {
       id: uid(),
       foodId: food.id,
@@ -559,7 +559,7 @@ export default function AssessmentPage() {
               const food = foodOf(item)
               if (!food) return item
               return {...item, snap: {
-                kind: food.kind, sourceFoodId: food.sourceFoodId, infantFormula: food.infantFormula,
+                kind: food.kind, labelSource: food.labelSource, sourceFoodId: food.sourceFoodId, infantFormula: food.infantFormula,
                 per: food.per, values: {...food.values},
               }}
             })

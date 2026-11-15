@@ -3,11 +3,22 @@ export type Sex = 'M' | 'F'
 export type Feeding = 'breast' | 'formula' | 'mixed' | 'na'
 export type FoodKind = 'food' | 'formula' | 'supplement' | 'recipe'
 
+export interface LabelSource {
+  url: string
+  publisher: 'manufacturer' | 'retailer'
+  checkedOn: string
+  version: string
+  /** Qualified label values such as "<0.5", stored separately from exact nutrient amounts. */
+  bounds?: Record<string, string>
+}
+
 /** A food the calculator can use, whatever its source. */
 export interface Food {
+  labelSource?: LabelSource
+  labelMeasures?: Measure[]
   sourceFoodId?: string
   infantFormula?: boolean
-  id: string // "c:<CoFID code>" or "u:<custom id>"
+  id: string // "c:<CoFID code>", "b:<UK branded id>" or "u:<custom id>"
   name: string
   kind: FoodKind
   group: string // CoFID sub-group code, or '' for custom foods
@@ -96,7 +107,7 @@ export interface Item {
   /** offered but not eaten: kept on the record, left out of the totals */
   refused?: boolean
   /** frozen copy of an editable food at the time it was logged, so later edits do not rewrite history */
-  snap?: { sourceFoodId?: string; infantFormula?: boolean; kind: FoodKind; per: number; values: Record<string, RawVal>; partial?: string[] }
+  snap?: { labelSource?: LabelSource; sourceFoodId?: string; infantFormula?: boolean; kind: FoodKind; per: number; values: Record<string, RawVal>; partial?: string[] }
 }
 
 export interface Meal {

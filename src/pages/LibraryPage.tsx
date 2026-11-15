@@ -4,16 +4,17 @@ import { FoodEditor, type EditorTarget } from '../components/FoodEditor'
 import { RecipeEditor } from '../components/RecipeEditor'
 import { Button, Field, Icon, IconButton, Input, Modal, confirmDialog, cx } from '../components/ui'
 import { rawValue } from '../domain/calc'
-import { allCofid, cofidCount, cofidVersion, getFood, groupName, originalFood, overrideDocId, searchFoods } from '../domain/foods'
+import { allBranded, allCofid, cofidCount, cofidVersion, getFood, groupName, originalFood, overrideDocId, searchFoods } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
 import { GROUP_ORDER, NUTRIENTS, fmt } from '../domain/nutrients'
 import { normaliseRecipe } from '../domain/recipe'
 import type { CustomFood, Food, Measure } from '../domain/types'
 import { useStore } from '../store/store'
 
-type Filter = 'all' | 'cofid' | 'mine' | 'recipe' | 'formula' | 'supplement' | 'edited'
+type Filter = 'all' | 'branded' | 'cofid' | 'mine' | 'recipe' | 'formula' | 'supplement' | 'edited'
 
 function sourceLabel(f: Food): string {
+  if (f.labelSource) return 'UK brand label'
   if (f.id.startsWith('c:')) return `CoFID ${f.id.slice(2)}`
   return f.kind === 'recipe' ? 'Recipe' : f.kind === 'formula' ? 'Formula / milk' : f.kind === 'supplement' ? 'Supplement' : 'My food'
 }
@@ -22,7 +23,8 @@ function matches(f: Food, filter: Filter): boolean {
   const isCofid = f.id.startsWith('c:')
   switch (filter) {
     case 'cofid': return isCofid
-    case 'mine': return !isCofid && f.kind === 'food'
+    case 'branded': return Boolean(f.labelSource)
+    case 'mine': return !isCofid && !f.labelSource && f.kind === 'food'
     case 'recipe': return f.kind === 'recipe'
     case 'formula': return f.kind === 'formula'
     case 'supplement': return f.kind === 'supplement'
@@ -74,17 +76,22 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         <IconButton icon="x" label="Close" onClick={onClose} className="lg:hidden" />
       </div>
       <div className="flex flex-wrap gap-1.5 border-b border-line px-4 py-2.5">
-        {(food.kind === 'recipe' || recipe) && custom ? (
+        {!food.labelSource && ((food.kind === 'recipe' || recipe) && custom ? (
           <Button size="sm" variant="primary" icon="edit" onClick={() => onEdit({ type: 'recipe', recipe: custom })}>Edit recipe</Button>
         ) : (
           <Button size="sm" variant="primary" icon="edit" onClick={() => onEdit(isCofid ? { type: 'original', foodId: food.id } : { type: 'edit', food: custom! })}>Edit</Button>
-        )}
+        ))}
         <Button size="sm" icon="copy" onClick={() => onEdit({ type: 'version', sourceId: food.id })}>Make a version</Button>
         {food.edited && <Button size="sm" onClick={() => confirmDialog(`Put “${orig?.name}” back to the original CoFID values?`) && deleteFood(overrideDocId(food.id))}>Revert to original</Button>}
         <Button size="sm" variant="ghost" onClick={() => update({ favourites: isFav ? settings.favourites.filter((x) => x !== food.id) : [...settings.favourites, food.id] })}><Icon name="star" size={14} filled={isFav} className={isFav ? 'text-warning' : ''} /> {isFav ? 'Favourite' : 'Add to favourites'}</Button>
         {!isCofid && custom && <Button size="sm" variant="ghost" icon="trash" className="ml-auto" onClick={() => confirmDialog(`Delete “${food.name}”? Food histories that already use it keep their saved values.`) && (deleteFood(custom.id), onClose())}>Delete</Button>}
       </div>
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {food.labelSource && <div className="mb-4 rounded-lg border border-line bg-surface-2 p-3 text-xs text-ink-2">
+          <p className="font-medium">UK label · as sold · checked {food.labelSource.checkedOn.split('-').reverse().join('/')}</p>
+          <p className="mt-1">Declared values only. Undeclared nutrients remain unknown. Use a version to record a different pack or formulation.</p>
+          <a href={food.labelSource.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block font-medium text-accent-ink underline">View {food.labelSource.publisher} label</a>
+        </div>}
         {recipe && (
           <div className="mb-4">
             <div className="mb-1 text-[12px] font-medium text-muted">Ingredients · makes {recipe.portions} portion{recipe.portions === 1 ? '' : 's'}</div>
@@ -104,6 +111,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
             <div key={g} className="mb-2">
               {rows.map((n) => {
                 const { v, lowEst } = rawValue(food, n.id)
+                const bound = food.labelSource?.bounds?.[n.id]
                 const o = orig && food.edited ? rawValue(orig, n.id).v : undefined
                 const changed = o !== undefined && (o == null ? v != null : v == null || Math.abs(o - v) > 1e-9)
                 const partial = food.partial?.includes(n.id === 'salt' ? 'sodium' : n.id)
@@ -111,7 +119,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
                   <div key={n.id} className="flex items-baseline justify-between gap-3 border-b border-line py-1 text-[13px] last:border-0">
                     <span className="text-ink-2">{n.short ?? n.label}</span>
                     <span className="tnum text-right">
-                      {v == null ? <span className="text-warning-ink">no value</span> : <><span className={changed ? 'font-semibold text-accent-ink' : 'font-medium'}>{partial ? '≥ ' : ''}{fmt(v, Math.max(n.dp, 1))}</span> <span className="text-muted">{n.unit}{lowEst ? ' (NSP)' : ''}</span></>}
+                      {v == null ? <span className="text-warning-ink">{bound ? `${bound} ${n.unit} (label limit)` : 'no value'}</span> : <><span className={changed ? 'font-semibold text-accent-ink' : 'font-medium'}>{partial ? '≥ ' : ''}{fmt(v, Math.max(n.dp, 1))}</span> <span className="text-muted">{n.unit}{lowEst ? ' (NSP)' : ''}</span></>}
                       {changed && <span className="ml-1.5 text-[11.5px] text-muted">CoFID {o == null ? 'none' : fmt(o, Math.max(n.dp, 1))}</span>}
                     </span>
                   </div>
@@ -120,6 +128,13 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
             </div>
           )
         })}
+        {food.labelSource && (typeof food.values.folic_acid === 'number' || typeof food.values.niacin === 'number') && (
+          <dl className="mt-3 space-y-1 rounded-lg border border-line p-2 text-xs">
+            {typeof food.values.folic_acid === 'number' && <div className="flex justify-between"><dt>Folic acid (label)</dt><dd>{food.values.folic_acid} µg</dd></div>}
+            {typeof food.values.niacin === 'number' && <div className="flex justify-between"><dt>Niacin (label)</dt><dd>{food.values.niacin} mg</dd></div>}
+            <dd className="text-muted">Reported separately per 100 g. These entries do not establish total folate or niacin equivalents.</dd>
+          </dl>
+        )}
         {food.per !== 1 && (
           <div className="mt-4">
             <div className="mb-1 text-[12px] font-medium text-muted">Portion sizes offered when logging</div>
@@ -177,7 +192,10 @@ export default function LibraryPage() {
     if (q.trim()) base = searchFoods(q, { favourites, limit: 400 })
     else {
       const custom = mine.map((c) => getFood('u:' + c.id)!).filter(Boolean)
-      base = filter === 'all' || filter === 'cofid' || filter === 'edited' ? [...(filter === 'all' ? custom : []), ...allCofid()] : custom
+      if (filter === 'all') base = [...custom, ...allBranded(), ...allCofid()]
+      else if (filter === 'branded') base = [...allBranded()]
+      else if (filter === 'cofid' || filter === 'edited') base = allCofid()
+      else base = custom
     }
     return base.filter((f) => matches(f, filter))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,6 +205,7 @@ export default function LibraryPage() {
   const chips: { id: Filter; label: string; n?: number }[] = [
     { id: 'all', label: 'Everything' },
     { id: 'cofid', label: 'UK CoFID', n: cofidCount() },
+    { id: 'branded', label: 'UK branded foods', n: allBranded().length },
     { id: 'mine', label: 'My foods', n: mine.filter((f) => f.kind === 'food').length },
     { id: 'recipe', label: 'Recipes', n: mine.filter((f) => f.kind === 'recipe').length },
     { id: 'formula', label: 'Formula & milks', n: mine.filter((f) => f.kind === 'formula').length },

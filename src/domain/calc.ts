@@ -89,6 +89,7 @@ export function foodOf(item: Item): Food | undefined {
       id: item.foodId,
       name: item.name,
       kind: item.snap.kind,
+      labelSource: item.snap.labelSource,
       sourceFoodId: item.snap.sourceFoodId,
       infantFormula: item.snap.infantFormula,
       group: live?.group ?? '',

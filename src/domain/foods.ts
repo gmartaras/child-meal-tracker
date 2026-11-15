@@ -1,3 +1,4 @@
+import { UK_BRANDED_FOODS } from '../data/ukBranded'
 import type { CustomFood, Food, RawVal } from './types'
 
 interface CofidFile {
@@ -27,6 +28,8 @@ const SYNONYMS: Record<string, string> = {
   spag: 'spaghetti', bol: 'bolognese', chips: 'chips', crisp: 'crisps', satsuma: 'satsumas', tomato: 'tomatoes',
   potato: 'potatoes', wholemeal: 'wholemeal', brown: 'brown', mince: 'minced', courgettes: 'courgette',
 }
+
+const brandedById = new Map(UK_BRANDED_FOODS.map(food => [food.id, food]))
 
 let cofid: Food[] = []
 let byId = new Map<string, Food>()
@@ -101,7 +104,7 @@ export function setCustomFoods(list: CustomFood[]): void {
 }
 
 export function getFood(id: string): Food | undefined {
-  return overrides.get(id) ?? byId.get(id) ?? custom.get(id)
+  return overrides.get(id) ?? byId.get(id) ?? brandedById.get(id) ?? custom.get(id)
 }
 
 /** The CoFID food exactly as published, ignoring any edits. */
@@ -111,6 +114,10 @@ export function originalFood(id: string): Food | undefined {
 
 export function allCofid(): Food[] {
   return cofid.map((f) => overrides.get(f.id) ?? f)
+}
+
+export function allBranded(): readonly Food[] {
+  return UK_BRANDED_FOODS
 }
 
 export function cofidCount(): number {
@@ -137,7 +144,7 @@ function norm(s: string): string {
 }
 
 function rebuildIndex(): void {
-  const all = [...custom.values(), ...cofid.map((f) => overrides.get(f.id) ?? f)]
+  const all = [...custom.values(), ...UK_BRANDED_FOODS, ...cofid.map((f) => overrides.get(f.id) ?? f)]
   index = all.map((food) => {
     const text = norm(`${food.name} ${food.brand ?? ''} ${ALIASES[food.id]?.words ?? ''}`)
     return { food, text, words: text.split(' ') }
@@ -223,6 +230,7 @@ export function searchFoods(query: string, opts: SearchOptions = {}): Food[] {
     if (/^(FC|PE)/.test(g) && !/juice/.test(q)) score -= 4
     if (/weighed with|homemade/.test(e.text)) score -= 3
     if (e.food.id.startsWith('u:')) score += 6
+    if (e.food.labelSource && (q === norm(e.food.brand ?? '') || (tokens.length > 1 && norm(e.food.name).includes(q)))) score += 8
     score += ALIASES[e.food.id]?.boost ?? 0
     if (COMMON.test(e.food.name)) score += 5
     if (favs.has(e.food.id)) score += 25
@@ -243,6 +251,7 @@ export function groupName(food: Food): string {
   if (food.kind === 'supplement') return 'Supplement'
   if (food.kind === 'formula') return 'Formula / milk'
   if (food.kind === 'recipe') return 'Recipe'
+  if (food.labelSource) return 'UK brand label'
   if (!food.group) return 'My foods'
   return GROUP_NAMES[food.group[0]] ?? ''
 }

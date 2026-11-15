@@ -175,6 +175,7 @@ export function measuresFor(
     }
   }
   out.push(...(ctx.customMeasures ?? []), ...(ctx.userMeasures ?? []))
+  out.push(...(food.labelMeasures ?? []))
   if (food.unit === 'g' && food.id.startsWith('c:')) {
     const lower = food.name.toLowerCase()
     for (const r of RULES) {

@@ -295,6 +295,22 @@ export default function ReportPage() {
         </div>
       </section>
 
+      {a.days.some(d => d.complete && !d.excluded && d.meals.some(m => m.items.some(i => !i.refused && i.amount > 0 && i.snap?.labelSource))) && (
+        <section className="mt-4">
+          <h2 className="font-semibold">Branded food sources</h2>
+          <ul className="mt-2 space-y-1 text-xs">
+            {[...new Map(a.days.filter(d => d.complete && !d.excluded).flatMap(d => d.meals.flatMap(m => m.items))
+              .filter(i => !i.refused && i.amount > 0 && i.snap?.labelSource)
+              .map(i => [`${i.foodId}:${i.snap!.labelSource!.version}`, i])).values()].map(i => (
+                <li key={`${i.foodId}:${i.snap!.labelSource!.version}`}>
+                  <a className="text-accent-ink underline" href={i.snap!.labelSource!.url} target="_blank" rel="noopener noreferrer">{i.name}</a>
+                  {' · '}{formatDate(i.snap!.labelSource!.checkedOn)} · {i.snap!.labelSource!.version}
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
+
       {(a.note || (session && session.date === a.date && session.note)) && (
         <section className="avoid-break mt-5">
           <h2 className="mb-1 text-[13px] font-semibold">Notes</h2>
