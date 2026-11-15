@@ -1,7 +1,7 @@
 export type RawVal = number | 'T' | 'N' | null
 export type Sex = 'M' | 'F'
 export type Feeding = 'breast' | 'formula' | 'mixed' | 'na'
-export type FoodKind = 'food' | 'formula' | 'supplement'
+export type FoodKind = 'food' | 'formula' | 'supplement' | 'recipe'
 
 /** A food the calculator can use, whatever its source. */
 export interface Food {
@@ -18,12 +18,37 @@ export interface Food {
   density?: number // g per ml, when a ml measure makes sense
   values: Record<string, RawVal>
   brand?: string
+  /** nutrients whose value is a minimum because part of the food (a recipe ingredient) has no data */
+  partial?: string[]
+  /** true for a CoFID food whose values or name the practitioner has changed */
+  edited?: boolean
+  /** food this entry was derived from, if any */
+  basedOn?: string
+}
+
+export interface Ingredient {
+  id: string
+  foodId: string
+  name: string
+  /** grams (or ml / doses for foods measured that way) */
+  amount: number
+  qty: number
+  measure: string
+  measureAmount: number
+  unit: string
+}
+
+/** Recipes saved by an earlier version used items / yieldGrams / servings; see normaliseRecipe. */
+export interface RecipeDef {
+  ingredients: Ingredient[]
+  /** weight of the finished dish in grams; blank = sum of the ingredients */
+  cookedWeight?: number
+  portions: number
 }
 
 /** Custom food as stored in the database. */
 export interface CustomFood {
   sourceFoodId?: string
-  recipe?: { items: Item[]; yieldGrams: number; servings: number }
   infantFormula?: boolean
   id: string
   name: string
@@ -35,6 +60,12 @@ export interface CustomFood {
   values: Record<string, RawVal>
   measures?: Measure[]
   notes?: string
+  /** set when this record replaces the values of a CoFID food ("c:<code>"); deleting it reverts to the original */
+  overrideOf?: string
+  /** the library entry this one was copied from */
+  basedOn?: string
+  recipe?: RecipeDef
+  partial?: string[]
   updatedAt: number
 }
 
@@ -62,8 +93,10 @@ export interface Item {
   measureAmount: number // base units per 1 measure
   freq?: Freq
   estimate?: boolean // e.g. breast-milk volume estimated from feeds
-  /** frozen copy of a custom food at the time it was logged, so later edits do not rewrite history */
-  snap?: { sourceFoodId?: string; infantFormula?: boolean; kind: FoodKind; per: number; values: Record<string, RawVal> }
+  /** offered but not eaten: kept on the record, left out of the totals */
+  refused?: boolean
+  /** frozen copy of an editable food at the time it was logged, so later edits do not rewrite history */
+  snap?: { sourceFoodId?: string; infantFormula?: boolean; kind: FoodKind; per: number; values: Record<string, RawVal>; partial?: string[] }
 }
 
 export interface Meal {
@@ -80,9 +113,12 @@ export interface Day {
   id: string
   label: string
   meals: Meal[]
+  /** what the parent wrote for this day, pasted in for reference while entering foods */
+  source?: string
 }
 
-export type AssessmentType = 'diary' | 'typical' | 'ffq'
+/** 'typical' and 'ffq' are earlier names for 'usual' and are read as such */
+export type AssessmentType = 'diary' | 'usual' | 'typical' | 'ffq'
 
 export interface Assessment {
   state?: "draft" | "reviewed" | "finalised"
@@ -116,15 +152,78 @@ export interface Client {
   /** per-child target overrides, keyed by nutrient id */
   targets?: Record<string, number>
   archived?: boolean
+  /** link to the client's shared folder (videos, documents) */
+  folderUrl?: string
+  /** date the privacy notice / consent was given */
+  privacyNoticeOn?: string
+  dischargedOn?: string
+  /** practice checklist: item label -> date ticked */
+  checklist?: Record<string, string>
+  acceptedFoods?: AcceptedFood[]
+  plan?: MealPlan
+  sensory?: SensoryRecord
   createdAt: number
   updatedAt: number
 }
+
+export const FOOD_GROUPS = [
+  'Carbohydrates and starchy foods',
+  'Fruits and vegetables',
+  'Milk and dairy foods (or fortified alternatives)',
+  'Meat, fish, eggs, beans and other protein',
+  'Foods and drinks high in fat or sugar',
+] as const
+
+export interface AcceptedFood {
+  id: string
+  name: string
+  group: number // index into FOOD_GROUPS
+  addedOn: string
+  note?: string
+}
+
+export const PLAN_SLOTS = ['Breakfast', 'Morning snack', 'Lunch', 'Afternoon snack', 'Dinner', 'Before bed']
+export const PLAN_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+export interface MealPlan {
+  intro: string
+  /** cells[day][slot]; a line starting with "+" is a new food to introduce */
+  cells: string[][]
+  chains: { id: string; from: string; to: string }[]
+  updatedAt: number
+}
+
+export type SensoryAnswer = 'yes' | 'no' | 'sometimes' | ''
+
+export interface SensoryRow {
+  section: string
+  text: string
+  answer: SensoryAnswer
+  comment: string
+}
+
+export interface SensoryRecord {
+  completedOn: string
+  rows: SensoryRow[]
+}
+
+export interface SessionSections {
+  concerns?: string
+  observations?: string
+  advice?: string
+  actions?: string
+}
+
+export const SESSION_KINDS = ['Initial consultation', 'Follow-up', 'Message or email', 'Other'] as const
 
 export interface Session {
   id: string
   clientId: string
   date: string
+  kind?: string
+  /** free-text note (earlier records) */
   note: string
+  sections?: SessionSections
   weightKg?: number
   heightCm?: number
   createdAt: number
@@ -158,9 +257,26 @@ export interface Settings {
   recents: string[]
   favourites: string[]
   lastBackupAt?: number
+  /** meal headings used for new food histories */
+  mealNames?: string[]
+  /** steps of the practice process ticked off per client */
+  checklist?: string[]
+  /** sign out after this many minutes without activity (0 = never) */
+  autoLockMin?: number
+  /** age at which a child's record is due for deletion review */
+  retentionAge?: number
   seeded?: boolean
   nextClientNo: number
   updatedAt: number
 }
 
-export const MEAL_NAMES = ['Breakfast', 'Mid-morning', 'Lunch', 'Mid-afternoon', 'Evening meal', 'Bedtime / night']
+export const MEAL_NAMES = ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Drinks']
+export const DEFAULT_CHECKLIST = [
+  '3-day food history received',
+  'Sensory questionnaire received',
+  'Mealtime videos reviewed',
+  'Accepted foods list agreed',
+  'Sample meal plan shared',
+  'Food chaining ideas shared',
+  'Handouts shared',
+]

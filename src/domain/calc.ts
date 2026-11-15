@@ -91,10 +91,12 @@ export function foodOf(item: Item): Food | undefined {
       kind: item.snap.kind,
       sourceFoodId: item.snap.sourceFoodId,
       infantFormula: item.snap.infantFormula,
-      group: '',
+      group: live?.group ?? '',
       per: item.snap.per,
       unit: item.unit,
+      density: live?.density,
       values: item.snap.values,
+      partial: item.snap.partial,
     }
   }
   return live
@@ -108,6 +110,7 @@ function emptyTotals(): Totals {
 
 /** Daily amount an item contributes (amount × frequency). */
 export function dailyAmount(item: Item): number {
+  if (item.refused) return 0
   return (item.amount || 0) * freqFactor(item.freq)
 }
 
@@ -128,6 +131,8 @@ function addItem(t: Totals, item: Item, sources?: Record<string, Map<string, Con
       continue
     }
     const x = (v * amount) / food.per
+    // a recipe total is a minimum when one of its ingredients has no value for this nutrient
+    if (food.partial?.includes(id) && !tot.missing.includes(item.name)) tot.missing.push(item.name)
     tot.v += x
     if (food.kind === 'supplement') tot.supp += x
     if (lowEst) tot.lowEst = true
@@ -160,7 +165,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
   const days = used.map((d) => {
     const t = emptyTotals()
     for (const item of dayItems(d)) addItem(t, item, src, 1 / n)
-    return { label: d.label, totals: t, itemCount: dayItems(d).length }
+    return { label: d.label, totals: t, itemCount: dayItems(d).filter((i) => !i.refused).length }
   })
   for (const id of CALC_IDS) {
     const a2 = avg[id]
@@ -180,6 +185,7 @@ export function computeAssessment(a: Pick<Assessment, 'days'>): AssessmentResult
   let count = 0
   for (const d of used) {
     for (const item of dayItems(d)) {
+      if (item.refused) continue
       count++
       const food = foodOf(item)
       if (!food) continue

@@ -1,455 +1,305 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ClientForm, FEEDING_LABEL } from '../components/ClientForm'
-import { TrendChart, type TrendPoint } from '../components/TrendChart'
 import { StatusChip } from '../components/analysis'
-import { AutoTextarea, Banner, Button, Card, Empty, Field, Icon, IconButton, Input, Modal, Select, SectionTitle, Segmented, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
-import { ageInMonths, formatAge, formatDate, todayISO, uid } from '../domain/age'
+import { Button, Card, Empty, Field, Icon, IconButton, Input, Modal, Select, Tabs, Textarea, confirmDialog, cx } from '../components/ui'
+import { ageInMonths, formatAge, formatDate, todayISO } from '../domain/age'
 import { TYPE_LABEL, analyse, type Analysis } from '../domain/analysis'
-import { referenceTargets, statusOf } from '../domain/drv'
-import { GROUP_ORDER, NUTRIENTS, fmt, fmtNutrient } from '../domain/nutrients'
-import type { Assessment, Client, Session } from '../domain/types'
-import { exportClientExcel, exportClientRecord } from '../lib/export'
+import { statusOf } from '../domain/drv'
+import { fmt } from '../domain/nutrients'
+import { DEFAULT_CHECKLIST, SESSION_KINDS, type Assessment, type Client, type Session, type SessionSections } from '../domain/types'
+import { exportClientExcel, exportClientJson } from '../lib/export'
 import { useStore } from '../store/store'
-import { newDay } from './AssessmentPage'
+import { newAssessment } from './AssessmentPage'
+import { AcceptedFoods } from './client/AcceptedFoods'
+import { MealPlan } from './client/MealPlan'
+import { Progress } from './client/Progress'
+import { Sensory } from './client/Sensory'
 
-// ---------- session note + measurements ----------
+type Tab = 'overview' | 'sessions' | 'food' | 'accepted' | 'plan' | 'sensory' | 'progress'
+
+const SECTION_LABELS: [keyof SessionSections, string, string][] = [
+  ['concerns', 'What the parents shared', 'Concerns, what has happened since last time, what is going well…'],
+  ['observations', 'Observations', 'From the conversation, mealtime videos, the food history…'],
+  ['advice', 'Advice and strategies discussed', 'What you explained or suggested…'],
+  ['actions', 'Agreed actions before the next session', 'One per line: what the family will try, what you will send…'],
+]
+
+// ---------- session ----------
 function SessionForm({ client, session, onClose }: { client: Client; session?: Session; onClose: () => void }) {
   const save = useStore((s) => s.saveSession)
   const del = useStore((s) => s.deleteSession)
+  const count = useStore((s) => s.sessions.filter((x) => x.clientId === client.id).length)
   const [date, setDate] = useState(session?.date ?? todayISO())
+  const [kind, setKind] = useState(session?.kind ?? (count === 0 ? SESSION_KINDS[0] : SESSION_KINDS[1]))
+  const [sections, setSections] = useState<SessionSections>(session?.sections ?? {})
   const [note, setNote] = useState(session?.note ?? '')
-  const [saving, setSaving] = useState(false)
   const [w, setW] = useState(session?.weightKg != null ? String(session.weightKg) : '')
   const [h, setH] = useState(session?.heightCm != null ? String(session.heightCm) : '')
+  const [busy, setBusy] = useState(false)
   const num = (s: string) => {
     const x = parseFloat(s.replace(',', '.'))
     return isFinite(x) && x > 0 ? x : undefined
   }
+  const trimmed = Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, (v ?? '').trim()]).filter(([, v]) => v)) as SessionSections
   return (
     <Modal
       wide
-      title={session ? 'Edit session note' : 'New session note'}
+      title={session ? 'Edit session notes' : 'New session notes'}
       onClose={onClose}
       footer={
         <>
-          {session && <Button variant="danger" className="mr-auto" icon="trash" onClick={() => confirmDialog('Delete this session note and its measurements?') && (del(session.id), onClose())}>Delete</Button>}
+          {session && <Button variant="danger" className="mr-auto" icon="trash" onClick={() => confirmDialog('Delete these session notes and their measurements?') && (del(session.id), onClose())}>Delete</Button>}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={saving || (!note.trim() && !num(w) && !num(h))} onClick={async () => {
-            setSaving(true)
-            const ok = await save({id:session?.id, clientId:client.id, date, note:note.trim(), weightKg:num(w), heightCm:num(h)})
-            setSaving(false)
-            if (ok) onClose()
-          }}>{saving ? 'Saving…' : 'Save session note'}</Button>
+          <Button variant="primary" disabled={busy} onClick={async () => { setBusy(true); const ok = await save({ id: session?.id, clientId: client.id, date, kind, sections: trimmed, note: note.trim(), weightKg: num(w), heightCm: num(h) }); setBusy(false); if (ok) onClose() }}>{busy ? 'Saving…' : 'Save'}</Button>
         </>
       }
     >
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Field label="Date"><Input type="date" value={date} max={todayISO()} onChange={(e) => e.target.value && setDate(e.target.value)} /></Field>
-        <Field label="Weight (kg)"><Input inputMode="decimal" className="tnum" value={w} onChange={(e) => setW(e.target.value)} placeholder="optional" /></Field>
-        <Field label="Length / height (cm)"><Input inputMode="decimal" className="tnum" value={h} onChange={(e) => setH(e.target.value)} placeholder="optional" /></Field>
+        <Field label="Type"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{SESSION_KINDS.map((k) => <option key={k}>{k}</option>)}</Select></Field>
+        <Field label="Weight (kg)"><Input inputMode="decimal" className="tnum" value={w} onChange={(e) => setW(e.target.value)} placeholder="if reported" /></Field>
+        <Field label="Height (cm)"><Input inputMode="decimal" className="tnum" value={h} onChange={(e) => setH(e.target.value)} placeholder="if reported" /></Field>
       </div>
-      <Field label="Session notes" className="mt-3">
-        <Textarea autoFocus={!session} rows={10} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Concerns raised, observations, advice given, plan and follow-up…" />
-      </Field>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {SECTION_LABELS.map(([key, label, ph], i) => (
+          <Field key={key} label={label}>
+            <Textarea autoFocus={!session && i === 0} rows={5} value={sections[key] ?? ''} onChange={(e) => setSections({ ...sections, [key]: e.target.value })} placeholder={ph} />
+          </Field>
+        ))}
+      </div>
+      <Field label="Anything else" className="mt-3"><Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      <p className="mt-2 text-[12px] text-muted">Fill in only what is useful. Agreed actions from the most recent session are shown on the client’s overview.</p>
     </Modal>
   )
 }
 
-// ---------- timeline ----------
-function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analysis; panel: string[] }) {
-  const { result, targets } = analysis
-  const flags = panel.filter((id) => targets[id] && id !== 'energy').map((id) => ({ id, st: statusOf(result.avg[id], targets[id]) }))
-  const low = flags.filter((f) => f.st === 'low').length
-  const off = flags.filter((f) => f.st === 'below' || f.st === 'above').length
-  const e = targets.energy
-  return (
-    <Link to={`/c/${a.clientId}/a/${a.id}`} className="workspace-row block rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Icon name="apple" className="text-accent-ink" />
-            <span className="truncate font-medium">{a.title || TYPE_LABEL[a.type]}</span>
-          </div>
-          <div className="mt-0.5 text-[12.5px] text-ink-2">{TYPE_LABEL[a.type]} · {result.itemCount} food line{result.itemCount === 1 ? '' : 's'}{a.type === 'diary' ? ` · ${result.nDays} day${result.nDays === 1 ? '' : 's'}` : ''}</div>
-        </div>
-        <Icon name="chevronRight" className="mt-1 text-muted" />
-      </div>
-      {result.nDays > 0 ? (
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px]">
-          <span className="tnum"><span className="font-semibold">{fmt(result.avg.energy.v, 0)}</span> kcal/day{e ? ` · ${Math.round((result.avg.energy.v / e.value) * 100)}% of EAR` : ''}</span>
-          {low > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="low" compact /> {low} below LRNI</span>}
-          {off > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="below" compact /> {off} outside target</span>}
-          {!low && !off && !flags.some(f => f.st === "unknown") && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
-        </div>
-      ) : (
-        <div className="mt-2 text-[12.5px] text-muted">No foods entered yet</div>
-      )}
-      {a.note && <p className="mt-2 line-clamp-2 text-[12.5px] text-ink-2">{a.note}</p>}
-    </Link>
-  )
-}
-
 function SessionCard({ s, client, onEdit }: { s: Session; client: Client; onEdit: () => void }) {
+  const filled = SECTION_LABELS.filter(([k]) => s.sections?.[k])
   return (
-    <div className="rounded-xl border border-line bg-surface p-3.5">
+    <Card className="p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Icon name="note" className="text-ink-2" />
-          <span className="font-medium">Session</span>
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+          <span className="text-[14px] font-semibold">{formatDate(s.date)}</span>
+          <span className="text-[13px] text-ink-2">{s.kind ?? 'Session'}</span>
           <span className="text-[12.5px] text-muted">age {formatAge(ageInMonths(client.dob, s.date))}</span>
+          {s.weightKg != null && <span className="tnum rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px]">{fmt(s.weightKg, 2)} kg</span>}
+          {s.heightCm != null && <span className="tnum rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px]">{fmt(s.heightCm, 1)} cm</span>}
         </div>
-        <IconButton icon="edit" label="Edit session" onClick={onEdit} className="-my-1" />
+        <Button size="sm" variant="ghost" icon="edit" onClick={onEdit} className="-my-1">Edit</Button>
       </div>
-      {(s.weightKg != null || s.heightCm != null) && (
-        <div className="tnum mt-2 flex flex-wrap gap-2 text-[12.5px]">
-          {s.weightKg != null && <span className="rounded-md bg-surface-2 px-2 py-0.5">Weight <span className="font-semibold">{fmt(s.weightKg, 2)} kg</span></span>}
-          {s.heightCm != null && <span className="rounded-md bg-surface-2 px-2 py-0.5">Length / height <span className="font-semibold">{fmt(s.heightCm, 1)} cm</span></span>}
+      {filled.length > 0 && (
+        <div className={cx('mt-3 grid gap-x-6 gap-y-3', filled.length > 1 && 'lg:grid-cols-2')}>
+          {filled.map(([k, label]) => (
+            <div key={k}>
+              <div className="mb-0.5 text-[12px] font-medium text-muted">{label}</div>
+              <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap">{s.sections![k]}</p>
+            </div>
+          ))}
         </div>
       )}
-      {s.note ? <p className="mt-2 text-[13.5px] leading-relaxed whitespace-pre-wrap">{s.note}</p> : <p className="mt-2 text-[12.5px] text-muted">No notes</p>}
-    </div>
-  )
-}
-
-// ---------- progress ----------
-function Progress({ client, rows, sessions, panel }: { client: Client; rows: { a: Assessment; an: Analysis }[]; sessions: Session[]; panel: string[] }) {
-  const [mode, setMode] = useState<'pct' | 'abs'>('pct')
-  const done = rows.filter((r) => r.a.state === "finalised" && !r.a.scenarioOf && r.an.result.nDays > 0).sort((x, y) => x.a.date.localeCompare(y.a.date))
-  const weights: TrendPoint[] = sessions.filter((s) => s.weightKg != null).map((s) => ({ date: s.date, value: s.weightKg!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
-  const heights: TrendPoint[] = sessions.filter((s) => s.heightCm != null).map((s) => ({ date: s.date, value: s.heightCm!, note: `age ${formatAge(ageInMonths(client.dob, s.date))}` }))
-  const shown = NUTRIENTS.filter((n) => panel.includes(n.id))
-  const latest = done[done.length - 1]
-  const prev = done[done.length - 2]
-
-  return (
-    <div className="space-y-6">
-      <section>
-        <SectionTitle action={done.length > 0 ? <Segmented value={mode} onChange={setMode} options={[{ id: 'pct', label: '% of target' }, { id: 'abs', label: 'Amounts' }]} /> : undefined}>Nutrient intake over time</SectionTitle>
-        {done.length === 0 ? (
-          <Card><Empty icon="trend" title="No food histories yet">Trends appear here once a food history has been entered. Each one adds a point to every chart.</Empty></Card>
-        ) : (
-          <>
-            {done.length === 1 && <div className="mb-3"><Banner>One food history so far. Add a follow-up history to see how intake changes between consultations.</Banner></div>}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {shown.map((n) => {
-                const usePct = mode === 'pct' && done.some((r) => r.an.targets[n.id])
-                const points: TrendPoint[] = done
-                  .filter((r) => !usePct || r.an.targets[n.id])
-                  .map((r) => {
-                    const v = r.an.result.avg[n.id].v
-                    const t = r.an.targets[n.id]
-                    return { date: r.a.date, value: usePct ? (v / t.value) * 100 : v, note: usePct ? `${fmtNutrient(n.id, v)} ${n.unit} · ${r.a.title}` : r.a.title }
-                  })
-                const tLast = latest.an.targets[n.id]
-                return (
-                  <TrendChart
-                    key={n.id}
-                    title={n.short ?? n.label}
-                    subtitle={usePct ? `% of ${tLast?.type === 'Max' ? 'maximum' : (tLast?.type ?? 'target')}` : `${n.unit} per day${mode === 'pct' ? ' · no reference value' : ''}`}
-                    points={points}
-                    unit={usePct ? '%' : n.unit}
-                    dp={usePct ? 0 : n.dp}
-                    reference={usePct ? 100 : undefined}
-                    referenceLabel={tLast?.type === 'Max' ? 'max' : 'target'}
-                  />
-                )
-              })}
-            </div>
-            {prev && (
-              <Card className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[560px] text-[13px]">
-                  <caption className="px-4 pt-3 pb-2 text-left text-[13px] font-semibold">Latest compared with previous</caption>
-                  <thead>
-                    <tr className="border-y border-line text-left text-[12px] text-ink-2">
-                      <th className="px-4 py-2 font-medium">Nutrient</th>
-                      <th className="px-3 py-2 text-right font-medium">{formatDate(prev.a.date)}</th>
-                      <th className="px-3 py-2 text-right font-medium">{formatDate(latest.a.date)}</th>
-                      <th className="px-3 py-2 text-right font-medium">Change</th>
-                      <th className="px-4 py-2 font-medium">Now</th>
-                    </tr>
-                  </thead>
-                  <tbody className="tnum divide-y divide-line">
-                    {shown.map((n) => {
-                      const a = prev.an.result.avg[n.id].v
-                      const b = latest.an.result.avg[n.id].v
-                      const d = b - a
-                      const t = latest.an.targets[n.id]
-                      return (
-                        <tr key={n.id}>
-                          <td className="px-4 py-1.5">{n.short ?? n.label} <span className="text-muted">({n.unit})</span></td>
-                          <td className="px-3 py-1.5 text-right">{fmtNutrient(n.id, a)}</td>
-                          <td className="px-3 py-1.5 text-right font-medium">{fmtNutrient(n.id, b)}</td>
-                          <td className="px-3 py-1.5 text-right text-ink-2">{Math.abs(d) < Math.pow(10, -n.dp) / 2 ? '–' : `${d > 0 ? '+' : '−'}${fmtNutrient(n.id, Math.abs(d))}`}</td>
-                          <td className="px-4 py-1.5">{t ? <StatusChip status={statusOf(latest.an.result.avg[n.id], t)} target={t} /> : <span className="text-[12px] text-muted">No reference</span>}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </Card>
-            )}
-          </>
-        )}
-      </section>
-      <section>
-        <SectionTitle>Growth measurements</SectionTitle>
-        {weights.length + heights.length === 0 ? (
-          <Card><Empty icon="ruler" title="No measurements yet">Add weight and length or height when you record a session.</Empty></Card>
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TrendChart title="Weight" points={weights} unit="kg" dp={2} height={150} />
-              <TrendChart title="Length / height" points={heights} unit="cm" dp={1} height={150} />
-            </div>
-            <Card className="mt-3 overflow-x-auto">
-              <table className="tnum w-full text-[13px]">
-                <thead>
-                  <tr className="border-b border-line text-left text-[12px] text-ink-2"><th className="px-4 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Age</th><th className="px-3 py-2 text-right font-medium">Weight (kg)</th><th className="px-4 py-2 text-right font-medium">Length / height (cm)</th></tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {[...sessions].filter((s) => s.weightKg != null || s.heightCm != null).sort((a, b) => b.date.localeCompare(a.date)).map((s) => (
-                    <tr key={s.id}><td className="px-4 py-1.5">{formatDate(s.date)}</td><td className="px-3 py-1.5">{formatAge(ageInMonths(client.dob, s.date))}</td><td className="px-3 py-1.5 text-right">{s.weightKg != null ? fmt(s.weightKg, 2) : '–'}</td><td className="px-4 py-1.5 text-right">{s.heightCm != null ? fmt(s.heightCm, 1) : '–'}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-            <p className="mt-2 text-[12px] text-muted">Measurements are plotted as recorded. Use your UK-WHO growth charts for centiles.</p>
-          </>
-        )}
-      </section>
-    </div>
-  )
-}
-
-// ---------- targets ----------
-function Targets({ client }: { client: Client }) {
-  const saveClient = useStore((s) => s.saveClient)
-  const panel = useStore((s) => s.settings.panel)
-  const age = ageInMonths(client.dob, todayISO())
-  const ref = referenceTargets(age, client.sex, client.feeding)
-  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(client.targets ?? {}).map(([k, v]) => [k, String(v)])))
-  const commit = (next: Record<string, string>) => {
-    const targets: Record<string, number> = {}
-    for (const [k, v] of Object.entries(next)) {
-      const x = parseFloat(v.replace(',', '.'))
-      if (isFinite(x) && x > 0) targets[k] = x
-    }
-    saveClient({ ...client, targets })
-  }
-  const shown = NUTRIENTS.filter((n) => panel.includes(n.id))
-  return (
-    <div>
-      <Banner>Reference values for {client.firstName} today ({formatAge(age)}, {client.sex === 'M' ? 'boy' : 'girl'}). Type a custom target to replace a reference value for this child only, for example a higher energy target for catch-up growth. Custom targets apply to all of this child’s food histories.</Banner>
-      <Card className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[560px] text-[13px]">
-          <thead>
-            <tr className="border-b border-line text-left text-[12px] text-ink-2"><th className="px-4 py-2 font-medium">Nutrient</th><th className="px-3 py-2 font-medium">Reference value</th><th className="px-3 py-2 font-medium">LRNI</th><th className="px-3 py-2 font-medium">Source</th><th className="px-4 py-2 font-medium">Custom target</th></tr>
-          </thead>
-          <tbody>
-            {GROUP_ORDER.map((g) => shown.filter((n) => n.group === g).map((n) => {
-              const t = ref[n.id]
-              return (
-                <tr key={n.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-1.5">{n.label} <span className="text-muted">({n.unit})</span></td>
-                  <td className="tnum px-3 py-1.5">{t ? <>{t.value} <span className="text-muted">{t.type}</span></> : <span className="text-muted">none set for this age</span>}</td>
-                  <td className="tnum px-3 py-1.5">{t?.lrni ?? <span className="text-muted">–</span>}</td>
-                  <td className="px-3 py-1.5 text-[12px] text-muted">{t?.source ?? ''}</td>
-                  <td className="px-4 py-1">
-                    <input
-                      inputMode="decimal"
-                      aria-label={`Custom target for ${n.label}`}
-                      value={vals[n.id] ?? ''}
-                      placeholder="–"
-                      onChange={(e) => setVals({ ...vals, [n.id]: e.target.value })}
-                      onBlur={() => commit(vals)}
-                      className={cx('tnum h-8 w-24 rounded-lg border bg-surface px-2 text-right text-sm focus:border-accent focus:outline-none', vals[n.id] ? 'border-accent' : 'border-line')}
-                    />
-                  </td>
-                </tr>
-              )
-            }))}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  )
-}
-
-// ---------- page ----------
-function ClientContext({ client }: { client: Client }) {
-  const saveContext = useStore((state) => state.saveContext)
-  const [edit, setEdit] = useState<{ original: string; text: string } | null>(null)
-  const [savedValue, setSavedValue] = useState<string>()
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
-  const context = edit?.text ?? savedValue ?? client.context
-  const original = edit?.original ?? savedValue ?? client.context
-  const dirty = edit !== null && context !== original
-
-  useEffect(() => {
-    if (client.context === savedValue) setSavedValue(undefined)
-  }, [client.context, savedValue])
-
-  const save = async () => {
-    setSaving(true)
-    setMessage('')
-    try {
-      await saveContext(client.id, context, original)
-      setSavedValue(context)
-      setEdit(null)
-      setMessage('Context saved.')
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save your context. Try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Card className="p-5">
-      <Field label="Key context" hint="Private notes about feeding, medical history or family priorities.">
-        <AutoTextarea value={context} disabled={saving} onChange={(text) => {
-          setEdit({ original, text })
-          setMessage('')
-        }} minRows={2} placeholder="Allergies, feeding concerns, medication or goals…" />
-      </Field>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button size="sm" variant="primary" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save context'}</Button>
-        <span className="text-sm text-ink-2" role="status">{message || (dirty ? 'Unsaved changes' : '')}</span>
-      </div>
+      {s.note && <p className={cx('text-[13.5px] leading-relaxed whitespace-pre-wrap', filled.length ? 'mt-3 border-t border-line pt-3' : 'mt-2')}>{s.note}</p>}
+      {!filled.length && !s.note && <p className="mt-2 text-[12.5px] text-muted">No notes written.</p>}
     </Card>
   )
 }
 
-const RESOURCE_CATEGORIES = ['Food diary', 'Accepted foods list', 'Questionnaire', 'Meal plan', 'Other handout']
-
-function privateDriveLink(value: string): string | undefined {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(url.hostname) || url.username || url.password) return
-    if (!/^\/(?:file\/d\/|drive\/(?:u\/\d+\/)?folders\/|(?:document|spreadsheets|presentation|forms)\/d\/)/.test(url.pathname)) return
-    return url.href
-  } catch {
-    return undefined
-  }
+// ---------- food history card ----------
+function AssessmentCard({ a, analysis, panel }: { a: Assessment; analysis: Analysis; panel: string[] }) {
+  const { result, targets } = analysis
+  const flags = panel.filter((id) => targets[id] && id !== 'energy').map((id) => statusOf(result.avg[id], targets[id]))
+  const low = flags.filter((f) => f === 'low').length
+  const off = flags.filter((f) => f === 'below' || f === 'above').length
+  return (
+    <Link to={`/c/${a.clientId}/a/${a.id}`} className="flex items-center gap-4 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-line-strong">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2.5">
+          <span className="text-[14px] font-semibold">{a.title || TYPE_LABEL[a.type]}</span>
+          <span className={cx('rounded-full px-1.5 py-0.5 text-[11px] font-medium', a.state === 'finalised' ? 'bg-good-wash text-good-ink' : 'bg-surface-2 text-ink-2')}>{a.scenarioOf ? 'Scenario' : a.state === 'finalised' ? 'Finalised' : a.amendmentOf ? 'Amendment draft' : 'Draft'}</span>
+          <span className="text-[12.5px] text-ink-2">{formatDate(a.date)} · {TYPE_LABEL[a.type]} · {result.itemCount} food{result.itemCount === 1 ? '' : 's'}{a.type === 'diary' ? ` over ${result.nDays} day${result.nDays === 1 ? '' : 's'}` : ''}</span>
+        </div>
+        {result.nDays > 0 ? (
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
+            <span className="tnum"><span className="font-semibold">{result.avg.energy.missing.length ? '≥ ' : ''}{fmt(result.avg.energy.v, 0)}</span> kcal/day</span>
+            {low > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="low" compact /> {low} below LRNI</span>}
+            {off > 0 && <span className="inline-flex items-center gap-1"><StatusChip status="below" compact /> {off} outside target</span>}
+            {!low && !off && <span className="inline-flex items-center gap-1"><StatusChip status="met" compact /> all targets met</span>}
+          </div>
+        ) : (
+          <div className="mt-1 text-[12.5px] text-muted">No completed days yet</div>
+        )}
+      </div>
+      <Icon name="chevronRight" className="text-muted" />
+    </Link>
+  )
 }
 
-function ClientResources({ client }: { client: Client }) {
-  const save = useStore(s => s.saveResources)
-  const [category, setCategory] = useState(RESOURCE_CATEGORIES[0])
-  const [title, setTitle] = useState('')
-  const [url, setUrl] = useState('')
-  const [pending, setPending] = useState(false)
-  const [status, setStatus] = useState('')
-  const resources = client.resources ?? []
-  const saveList = async (list: NonNullable<Client['resources']>) => {
-    setPending(true)
-    const ok = await save(client, list)
-    setPending(false)
-    setStatus(ok ? 'Files and handouts updated.' : 'Changes could not be saved. Your entry is still here.')
-    return ok
+// ---------- overview ----------
+function KeyContext({ client }: { client: Client }) {
+  const saveContext = useStore((s) => s.saveContext)
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(client.context)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState('')
+  const save = async () => {
+    setBusy(true)
+    setProblem('')
+    try {
+      // writes only the context field, and refuses if it was changed elsewhere since this page loaded it
+      await saveContext(client.id, text.trim(), client.context ?? '')
+      setEditing(false)
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : 'Could not save. Your text is still here; try again.')
+    }
+    setBusy(false)
   }
-
-  return <details className="mt-4 rounded-xl border border-line bg-surface p-4">
-    <summary className="cursor-pointer font-semibold">Files and handouts</summary>
-    <p className="my-3 text-sm text-ink-2">Link the family's completed diary, questionnaires and handouts in your practice Drive. File permissions are managed in Drive.</p>
-    <ul className="mb-3 space-y-2">{resources.map(resource => {
-      const href = privateDriveLink(resource.url)
-      return <li key={resource.id} className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted">{resource.category}</span>
-        {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">{resource.title}</a> : <span>{resource.title}</span>}
-        <Button size="sm" disabled={pending} onClick={() => void saveList(resources.filter(r=>r.id!==resource.id))}>Remove link</Button>
-      </li>
-    })}</ul>
-    <form className="grid gap-2 sm:grid-cols-3" onSubmit={async event=>{
-      event.preventDefault()
-      const link = privateDriveLink(url.trim())
-      if (!link || !title.trim()) {setStatus('Enter a title and a Google Drive or Docs link.'); return}
-      if (await saveList([...resources, {id:uid(), title:title.trim(), url:link, category}])) {setTitle(''); setUrl('')}
-    }}>
-      <Field label="File type"><Select value={category} onChange={e=>setCategory(e.target.value)}>{RESOURCE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</Select></Field>
-      <Field label="Title"><Input value={title} maxLength={120} onChange={e=>setTitle(e.target.value)}/></Field>
-      <Field label="Google Drive link"><Input type="url" value={url} onChange={e=>setUrl(e.target.value)}/></Field>
-      <Button type="submit" size="sm" disabled={pending}>Add link</Button>
-    </form>
-    <p role="status" className="mt-2 text-sm">{status}</p>
-  </details>
+  useEffect(() => {
+    setEditing(false)
+    setText(client.context)
+  }, [client.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Card className="p-4">
+      <div className="mb-1.5 flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold text-ink">Key context</h2>
+        {!editing && <Button size="sm" variant="ghost" icon="edit" className="-my-1.5" onClick={() => (setText(client.context), setEditing(true))}>{client.context ? 'Edit' : 'Add'}</Button>}
+      </div>
+      {editing ? (
+        <>
+          <Textarea autoFocus rows={Math.max(4, text.split('\n').length + 1)} value={text} onChange={(e) => setText(e.target.value)} placeholder="Allergies, diagnoses, medication, family situation, nursery or school, goals…" />
+          <div className="mt-2 flex justify-end gap-2">
+            {problem && <span className="mr-auto text-[12.5px] text-critical-ink" role="alert">{problem}</span>}
+            <Button size="sm" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </>
+      ) : client.context ? (
+        <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{client.context}</p>
+      ) : (
+        <p className="text-[13px] text-muted">Nothing noted yet. Use this for what you want to see every time you open the record.</p>
+      )}
+    </Card>
+  )
 }
 
+function Checklist({ client }: { client: Client }) {
+  const patchClient = useStore((s) => s.patchClient)
+  const items = useStore((s) => s.settings.checklist) ?? DEFAULT_CHECKLIST
+  const done = client.checklist ?? {}
+  const toggle = (label: string) => {
+    const next = { ...done }
+    if (next[label]) delete next[label]
+    else next[label] = todayISO()
+    void patchClient(client.id, { checklist: next })
+  }
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-[13px] font-semibold text-ink">Process checklist</h2>
+        <span className="tnum text-[12px] text-muted">{items.filter((i) => done[i]).length} of {items.length}</span>
+      </div>
+      <ul className="space-y-0.5">
+        {items.map((label) => (
+          <li key={label}>
+            <label className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 hover:bg-surface-2">
+              <input type="checkbox" checked={Boolean(done[label])} onChange={() => toggle(label)} className="h-4 w-4 accent-[var(--ink)]" />
+              <span className={cx('flex-1 text-[13.5px]', done[label] && 'text-ink-2')}>{label}</span>
+              {done[label] && <span className="tnum text-[11.5px] text-muted">{formatDate(done[label])}</span>}
+            </label>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+function RecordDetails({ client, onEdit }: { client: Client; onEdit: () => void }) {
+  const retentionAge = useStore((s) => s.settings.retentionAge) ?? 25
+  const y = Number(client.dob.slice(0, 4)) + retentionAge
+  const reviewOn = `${y}${client.dob.slice(4)}`
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="flex items-baseline justify-between gap-3 py-1 text-[13px]"><dt className="text-ink-2">{label}</dt><dd className="text-right">{value}</dd></div>
+  )
+  return (
+    <Card className="p-4">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold text-ink">Record</h2>
+        <Button size="sm" variant="ghost" icon="edit" className="-my-1.5" onClick={onEdit}>Edit</Button>
+      </div>
+      <dl className="divide-y divide-line">
+        {row('Shared folder', client.folderUrl ? <a href={client.folderUrl} target="_blank" rel="noreferrer noopener" className="font-medium text-accent-ink hover:underline">Open folder <Icon name="external" size={12} className="inline align-[-1px]" /></a> : <span className="text-muted">not linked</span>)}
+        {row('Privacy notice given', client.privacyNoticeOn ? formatDate(client.privacyNoticeOn) : <span className="text-warning-ink">not recorded</span>)}
+        {row('Discharged', client.dischargedOn ? formatDate(client.dischargedOn) : <span className="text-muted">active</span>)}
+        {row('Keep record until', <span title={`Age ${retentionAge}, set in Settings → Data protection`}>{formatDate(reviewOn)}</span>)}
+      </dl>
+    </Card>
+  )
+}
+
+// ---------- page ----------
 export default function ClientPage() {
   const { id } = useParams()
   const nav = useNavigate()
+  const [params, setParams] = useSearchParams()
   const client = useStore((s) => s.clients.find((c) => c.id === id))
   const allAssessments = useStore((s) => s.assessments)
   const allSessions = useStore((s) => s.sessions)
   const settings = useStore((s) => s.settings)
-  const saveClient = useStore((s) => s.saveClient)
+  const patchClient = useStore((s) => s.patchClient)
+  const saveAssessment = useStore((s) => s.saveAssessment)
   const deleteClient = useStore((s) => s.deleteClient)
-  const [tab, setTab] = useState<'timeline' | 'progress' | 'targets'>('timeline')
+  const logAudit = useStore((s) => s.logAudit)
   const [modal, setModal] = useState<null | 'session' | 'edit'>(null)
-  const [creatingHistory, setCreatingHistory] = useState(false)
-  const saveAssessment = useStore(s => s.saveAssessment)
   const [editing, setEditing] = useState<Session | undefined>()
   const [menu, setMenu] = useState(false)
+  const tab = (params.get('tab') as Tab) || 'overview'
+  const setTab = (t: Tab) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })
 
-  useEffect(() => {
-    setTab('timeline')
-    setMenu(false)
-  }, [id])
+  useEffect(() => setMenu(false), [id])
 
-  const assessments = useMemo(() => allAssessments.filter((a) => a.clientId === id), [allAssessments, id])
-  const sessions = useMemo(() => allSessions.filter((s) => s.clientId === id).sort((a,b) => b.date.localeCompare(a.date) || b.createdAt-a.createdAt), [allSessions, id])
+  const assessments = useMemo(() => allAssessments.filter((a) => a.clientId === id).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt), [allAssessments, id])
+  const sessions = useMemo(() => allSessions.filter((s) => s.clientId === id).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt), [allSessions, id])
   const rows = useMemo(() => (client ? assessments.map((a) => ({ a, an: analyse(a, client, settings) })) : []), [assessments, client, settings])
 
   if (!client) return <div className="p-8"><Empty icon="users" title="Client not found" action={<Button onClick={() => nav('/')}>Back to clients</Button>} /></div>
 
   const age = ageInMonths(client.dob, todayISO())
-  const startHistory = async () => {
-    setCreatingHistory(true)
-    const now = Date.now()
-    const assessment: Assessment = {
-      id: uid(), clientId: client.id, type: 'diary', title: '3-day food diary',
-      date: todayISO(), state: 'draft', createdAt: now, updatedAt: now,
-      days: Array.from({length: 3}, (_, i) => newDay(`Day ${i + 1}`, 'diary')),
-    }
-    if (await saveAssessment(assessment)) nav(`/c/${client.id}/a/${assessment.id}`)
-    setCreatingHistory(false)
+  const startHistory = () => {
+    const a = newAssessment(client.id, todayISO(), settings.mealNames)
+    void saveAssessment(a).then((ok) => ok && nav(`/c/${client.id}/a/${a.id}`))
   }
-  type Entry = { date: string; at: number; s?: Session; r?: { a: Assessment; an: Analysis } }
-  const entries: Entry[] = [...sessions.map((s) => ({ date: s.date, at: s.createdAt, s })), ...rows.map((r) => ({ date: r.a.date, at: r.a.createdAt, r }))].sort((x, y) => y.date.localeCompare(x.date) || y.at - x.at)
-  const byDate: { date: string; items: Entry[] }[] = []
-  for (const e of entries) {
-    const last = byDate[byDate.length - 1]
-    if (last && last.date === e.date) last.items.push(e)
-    else byDate.push({ date: e.date, items: [e] })
-  }
+  const newSession = () => (setEditing(undefined), setModal('session'))
+  const latestActions = sessions.find((s) => s.sections?.actions)
+  const latestSession = sessions[0]
+  const latestFood = rows[0]
+
+  const menuItems = [
+    { icon: 'edit', label: 'Edit client details', fn: () => setModal('edit') },
+    { icon: 'download', label: 'Export to Excel', fn: () => (logAudit('export', `${client.code} to Excel`), exportClientExcel(client, assessments, sessions, settings)) },
+    { icon: 'download', label: 'Export full record (data request)', fn: () => (logAudit('export', `${client.code} full record`), exportClientJson(client, assessments, sessions)) },
+    { icon: 'users', label: client.archived ? 'Restore from archive' : 'Archive client', fn: () => void patchClient(client.id, { archived: !client.archived }) },
+    { icon: 'trash', label: 'Delete client and all data', danger: true, fn: () => confirmDialog(`Permanently delete ${client.firstName} (${client.code}) with all food histories, sessions and notes? This cannot be undone.`) && (logAudit('erase', client.code), deleteClient(client.id), nav('/')) },
+  ]
 
   return (
-    <div className="app-page">
-      <div className="workspace-hero flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-line p-5 sm:p-7">
-        <div className="flex min-w-0 items-center gap-4">
-          <div aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-line bg-accent-wash text-xl font-semibold text-accent-ink">{client.firstName.slice(0, 1).toUpperCase()}</div>
-          <div className="min-w-0">
-          <h1 className="page-title truncate text-2xl font-semibold sm:text-3xl">{client.firstName}{client.archived && <span className="ml-2 align-middle text-[12px] font-medium text-muted">archived</span>}</h1>
-          <p className="mt-0.5 text-[13.5px] text-ink-2">
-            {formatAge(age)} · {client.sex === 'M' ? 'Boy' : 'Girl'} · born {formatDate(client.dob)}{client.feeding !== 'na' ? ` · ${FEEDING_LABEL[client.feeding]}` : ''} · <span className="tnum">{client.code}</span>
-          </p>
+    <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6 sm:py-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-3">
+            <h1 className="truncate text-xl font-semibold tracking-tight">{client.firstName}</h1>
+            <span className="text-[13px] text-ink-2">
+              {formatAge(age)} · {client.sex === 'M' ? 'boy' : 'girl'} · born {formatDate(client.dob)}{client.feeding !== 'na' ? ` · ${FEEDING_LABEL[client.feeding].toLowerCase()}` : ''} · <span className="tnum">{client.code}</span>
+              {client.archived && <span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-[11.5px]">archived</span>}
+            </span>
           </div>
         </div>
-        <div className="relative flex flex-wrap items-center gap-2">
-          <Button variant="primary" icon="plus" disabled={creatingHistory} onClick={startHistory}>Add food history</Button>
-          <Button icon="note" onClick={() => (setEditing(undefined), setModal('session'))}>Add session note</Button>
-          <Button aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} aria-label="More actions">More <Icon name="chevronDown" size={14} /></Button>
+        <div className="relative flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="primary" icon="note" onClick={newSession}>Session notes</Button>
+          <Button size="sm" icon="apple" onClick={startHistory}>Food history</Button>
+          {client.folderUrl && <a href={client.folderUrl} target="_blank" rel="noreferrer noopener"><Button size="sm" variant="ghost">Folder <Icon name="external" size={13} /></Button></a>}
+          <IconButton icon="menu" label="More actions" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)} />
           {menu && (
-            <div role="menu" className="absolute top-full right-0 z-20 mt-1 w-56 rounded-lg border border-line bg-surface py-1 shadow-card" onMouseLeave={() => setMenu(false)}>
-              {[
-                { icon: 'edit', label: 'Edit client details', fn: () => setModal('edit') },
-                { icon: 'download', label: 'Download client record (JSON)', fn: () => exportClientRecord(client, assessments, sessions) },
-                { icon: 'download', label: 'Export to Excel', fn: () => exportClientExcel(client, assessments, sessions, settings) },
-                { icon: 'users', label: client.archived ? 'Restore from archive' : 'Archive client', fn: () => saveClient({ ...client, archived: !client.archived }) },
-                { icon: 'trash', label: 'Delete client and all data', danger: true, fn: () => confirmDialog(`Permanently delete ${client.firstName} (${client.code}) with all food histories, sessions and notes? This cannot be undone.`) && (deleteClient(client.id), nav('/')) },
-              ].map((m) => (
+            <div role="menu" className="absolute top-full right-0 z-20 mt-1 w-64 rounded-lg border border-line bg-surface py-1 shadow-card" onMouseLeave={() => setMenu(false)}>
+              {menuItems.map((m) => (
                 <button key={m.label} role="menuitem" type="button" onClick={() => (setMenu(false), m.fn())} className={cx('flex w-full items-center gap-2 px-3 py-2 text-left text-[13.5px] hover:bg-surface-2', m.danger && 'text-critical-ink')}>
                   <Icon name={m.icon} size={15} /> {m.label}
                 </button>
@@ -459,39 +309,86 @@ export default function ClientPage() {
         </div>
       </div>
 
-      <div className="mt-5 grid items-start gap-4 xl:grid-cols-2">
-      <ClientContext key={`context-${client.id}`} client={client} />
-      <Card className="p-5">
-        <SectionTitle action={<Button size="sm" icon="plus" onClick={() => {setEditing(undefined); setModal('session')}}>Add session note</Button>}>Session notes</SectionTitle>
-        <p className="mb-3 text-sm text-ink-2">Record what the family reported, what you discussed and what to follow up. These notes stay in the client record.</p>
-        {sessions.length ? <SessionCard s={sessions[0]} client={client} onEdit={() => {setEditing(sessions[0]); setModal('session')}} /> : <p className="text-sm text-muted">No session notes yet.</p>}
-        {!!client.goals?.length && <details className="mt-3 text-sm"><summary>Previously recorded actions</summary><ul className="mt-2 list-disc pl-5">{client.goals.map(goal => <li key={goal.id}>{goal.text}{goal.due && ` · review ${goal.due}`}{goal.done && ' · completed'}{goal.outcome && ` · ${goal.outcome}`}</li>)}</ul></details>}
-      </Card>
-      </div>
-      <ClientResources key={`resources-${client.id}`} client={client} />
-      <Tabs className="mt-6 mb-5" value={tab} onChange={setTab} tabs={[{ id: 'timeline', label: 'Timeline', count: entries.length }, { id: 'progress', label: 'Progress' }, { id: 'targets', label: 'Targets' }]} />
+      <Tabs
+        className="mt-2 mb-4"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'sessions', label: 'Session notes', count: sessions.length },
+          { id: 'food', label: 'Food histories', count: assessments.length },
+          { id: 'accepted', label: 'Accepted foods', count: client.acceptedFoods?.length ?? 0 },
+          { id: 'plan', label: 'Meal plan & chaining' },
+          { id: 'sensory', label: 'Sensory checklist' },
+          { id: 'progress', label: 'Progress' },
+        ]}
+      />
 
-      {tab === 'timeline' &&
-        (entries.length === 0 ? (
-          <Card>
-            <Empty icon="apple" title={`Start ${client.firstName}’s record`} action={<div className="flex gap-2"><Button variant="primary" icon="plus" disabled={creatingHistory} onClick={startHistory}>Add food history</Button><Button icon="note" onClick={() => setModal('session')}>Add session note</Button></div>}>
-              Enter a food history to analyse intake, or record a session with notes and measurements.
-            </Empty>
-          </Card>
-        ) : (
-          <ol className="space-y-5">
-            {byDate.map((g) => (
-              <li key={g.date} className="grid gap-2 sm:grid-cols-[112px_1fr] sm:gap-4">
-                <div className="pt-1 text-[13px] font-medium text-ink-2 sm:text-right">{formatDate(g.date)}</div>
-                <div className="space-y-2">
-                  {g.items.map((e) => (e.s ? <SessionCard key={e.s.id} s={e.s} client={client} onEdit={() => (setEditing(e.s), setModal('session'))} /> : <AssessmentCard key={e.r!.a.id} a={e.r!.a} analysis={e.r!.an} panel={settings.panel} />))}
-                </div>
-              </li>
-            ))}
-          </ol>
-        ))}
+      {tab === 'overview' && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]">
+          <div className="space-y-4">
+            <KeyContext client={client} />
+            <Card className="p-4">
+              <div className="mb-1.5 flex items-center justify-between">
+                <h2 className="text-[13px] font-semibold text-ink">Agreed actions{latestActions ? ` · ${formatDate(latestActions.date)}` : ''}</h2>
+                <button type="button" className="text-[12.5px] font-medium text-accent-ink hover:underline" onClick={() => setTab('sessions')}>All session notes</button>
+              </div>
+              {latestActions ? <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{latestActions.sections!.actions}</p> : <p className="text-[13px] text-muted">Actions agreed with the family in a session appear here.</p>}
+            </Card>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Card className="p-4">
+                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest session</h2>
+                {latestSession ? (
+                  <button type="button" className="block w-full text-left" onClick={() => setTab('sessions')}>
+                    <div className="text-[14px] font-medium">{formatDate(latestSession.date)} <span className="font-normal text-ink-2">· {latestSession.kind ?? 'Session'}</span></div>
+                    <p className="mt-1 line-clamp-3 text-[13px] text-ink-2">{latestSession.sections?.concerns || latestSession.sections?.observations || latestSession.note || 'No notes written.'}</p>
+                  </button>
+                ) : (
+                  <Button size="sm" icon="plus" onClick={newSession}>Write session notes</Button>
+                )}
+              </Card>
+              <Card className="p-4">
+                <h2 className="mb-1.5 text-[13px] font-semibold text-ink">Latest food history</h2>
+                {latestFood ? (
+                  <Link to={`/c/${client.id}/a/${latestFood.a.id}`} className="block">
+                    <div className="text-[14px] font-medium">{formatDate(latestFood.a.date)} <span className="font-normal text-ink-2">· {latestFood.a.title}</span></div>
+                    {latestFood.an.result.nDays > 0 ? (
+                      <p className="tnum mt-1 text-[13px] text-ink-2">
+                        {latestFood.an.result.avg.energy.missing.length ? '≥ ' : ''}{fmt(latestFood.an.result.avg.energy.v, 0)} kcal/day · {latestFood.an.insights.filter((i) => i.severity === 'critical').length} priority finding{latestFood.an.insights.filter((i) => i.severity === 'critical').length === 1 ? '' : 's'}
+                      </p>
+                    ) : <p className="mt-1 text-[13px] text-muted">No completed days yet</p>}
+                  </Link>
+                ) : (
+                  <Button size="sm" icon="plus" onClick={startHistory}>Enter a food history</Button>
+                )}
+              </Card>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <Checklist client={client} />
+            <RecordDetails client={client} onEdit={() => setModal('edit')} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'sessions' && (
+        <div className="space-y-3">
+          <div className="flex justify-end"><Button size="sm" variant="primary" icon="plus" onClick={newSession}>New session notes</Button></div>
+          {sessions.length === 0 ? <Card><Empty icon="note" title="No session notes yet">Record what the parents shared, what you observed, the advice you gave and the actions you agreed.</Empty></Card> : sessions.map((s) => <SessionCard key={s.id} s={s} client={client} onEdit={() => (setEditing(s), setModal('session'))} />)}
+        </div>
+      )}
+
+      {tab === 'food' && (
+        <div className="space-y-2">
+          <div className="flex justify-end"><Button size="sm" variant="primary" icon="plus" onClick={startHistory}>New food history</Button></div>
+          {rows.length === 0 ? <Card><Empty icon="apple" title="No food histories yet">Start one, paste in the family’s 3-day food history, and enter the foods to see intake against UK reference values.</Empty></Card> : rows.map((r) => <AssessmentCard key={r.a.id} a={r.a} analysis={r.an} panel={settings.panel} />)}
+        </div>
+      )}
+
+      {tab === 'accepted' && <AcceptedFoods client={client} />}
+      {tab === 'plan' && <MealPlan key={client.id} client={client} />}
+      {tab === 'sensory' && <Sensory client={client} />}
       {tab === 'progress' && <Progress client={client} rows={rows} sessions={sessions} panel={settings.panel} />}
-      {tab === 'targets' && <Targets key={client.id} client={client} />}
 
       {modal === 'session' && <SessionForm client={client} session={editing} onClose={() => setModal(null)} />}
       {modal === 'edit' && <ClientForm client={client} onClose={() => setModal(null)} />}

@@ -18,9 +18,13 @@ export function ClientForm({ client, onClose, onSaved }: { client?: Client; onCl
   const [sex, setSex] = useState<Sex>(client?.sex ?? 'F')
   const [feeding, setFeeding] = useState<Feeding>(client?.feeding ?? 'na')
   const [code, setCode] = useState(client?.code ?? '')
+  const [folderUrl, setFolderUrl] = useState(client?.folderUrl ?? '')
+  const [privacyNoticeOn, setPrivacy] = useState(client?.privacyNoticeOn ?? '')
+  const [dischargedOn, setDischarged] = useState(client?.dischargedOn ?? '')
   const valid = firstName.trim() && /^\d{4}-\d{2}-\d{2}$/.test(dob) && dob <= todayISO()
   return (
     <Modal
+      wide
       title={client ? 'Edit client' : 'New client'}
       onClose={onClose}
       footer={
@@ -30,7 +34,7 @@ export function ClientForm({ client, onClose, onSaved }: { client?: Client; onCl
             variant="primary"
             disabled={!valid}
             onClick={() => {
-              const c = saveClient({ id: client?.id, firstName: firstName.trim(), dob, sex, feeding, ...(code.trim() ? { code: code.trim() } : {}) })
+              const c = saveClient({ id: client?.id, firstName: firstName.trim(), dob, sex, feeding, folderUrl: /^https:\/\//.test(folderUrl.trim()) ? folderUrl.trim() : undefined, privacyNoticeOn: privacyNoticeOn || undefined, dischargedOn: dischargedOn || undefined, ...(code.trim() ? { code: code.trim() } : {}) })
               onSaved?.(c)
               onClose()
             }}
@@ -54,7 +58,10 @@ export function ClientForm({ client, onClose, onSaved }: { client?: Client; onCl
             ))}
           </Select>
         </Field>
-        <Field label="Client code" hint={client ? undefined : 'Leave blank to assign the next code automatically.'}><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. C-014" /></Field>
+        <Field label="Client code" hint="Your folder code, e.g. initials + month and year. Blank assigns the next number."><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. DL1126" autoComplete="off" /></Field>
+        <Field label="Shared folder link" hint="The client’s Google Drive folder, for one-click access to videos and documents." className="sm:col-span-2"><Input type="url" value={folderUrl} onChange={(e) => setFolderUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" autoComplete="off" /></Field>
+        <Field label="Privacy notice given on" hint="When the family received your privacy notice."><Input type="date" max={todayISO()} value={privacyNoticeOn} onChange={(e) => setPrivacy(e.target.value)} /></Field>
+        <Field label="Discharged on" hint="Leave blank while the child is under your care."><Input type="date" max={todayISO()} value={dischargedOn} onChange={(e) => setDischarged(e.target.value)} /></Field>
       </div>
     </Modal>
   )

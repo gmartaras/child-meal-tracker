@@ -3,21 +3,21 @@
 /* Semantic tokens. Chart colours are a validated colour-blind-safe set; do not swap ad hoc. */
 :root {
   color-scheme: light;
-  --bg: #f7f8fc;
+  --bg: #fafafa;
   --surface: #ffffff;
-  --surface-2: #eff1f7;
-  --ink: #17192a;
-  --ink-2: #50566d;
-  --muted: #606780;
-  --line: #e0e3ee;
-  --line-strong: #c2c7dc;
-  --accent: #4d46d6;
-  --accent-ink: #4138bc;
-  --accent-wash: #eeecff;
+  --surface-2: #f4f4f5;
+  --ink: #09090b;
+  --ink-2: #3f3f46;
+  --muted: #71717a;
+  --line: #e9e9ec;
+  --line-strong: #d4d4d8;
+  --accent: #3b6fd4;
+  --accent-ink: #2a56ad;
+  --accent-wash: #eef3fd;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
-  --track: #e8eaf2;
+  --track: #ececef;
   --good: #0ca30c;
   --good-ink: #006300;
   --warning: #fab219;
@@ -27,29 +27,27 @@
   --good-wash: #e7f6e7;
   --warning-wash: #fdf2d6;
   --critical-wash: #fbe9e9;
-  --shadow: 0 8px 28px #20254713, 0 1px 3px #20254714;
-  --button-ink: #ffffff;
+  --shadow: 0 0 0 1px rgba(9, 9, 11, 0.04), 0 12px 32px -8px rgba(9, 9, 11, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.print-light) {
     color-scheme: dark;
-    --bg: #141622;
-    --surface: #1b1e2c;
-    --surface-2: #232638;
-    --ink: #f2f3fa;
-    --ink-2: #c2c7dc;
-    --muted: #a1a9c1;
-    --button-ink: #181632;
-    --line: #303447;
-    --line-strong: #3f455c;
-    --accent: #a6a2ff;
-    --accent-ink: #bdb9ff;
-    --accent-wash: #2a2851;
+    --bg: #09090b;
+    --surface: #131316;
+    --surface-2: #1c1c20;
+    --ink: #fafafa;
+    --ink-2: #c4c4cc;
+    --muted: #8e8e99;
+    --line: #232329;
+    --line-strong: #33333b;
+    --accent: #3987e5;
+    --accent-ink: #86b6ef;
+    --accent-wash: #152036;
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
-    --track: #303447;
+    --track: #26262c;
     --good: #0ca30c;
     --good-ink: #5fce5f;
     --warning: #fab219;
@@ -59,7 +57,7 @@
     --good-wash: #13281a;
     --warning-wash: #2e2610;
     --critical-wash: #2e1616;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
   }
 }
 
@@ -88,7 +86,7 @@
   --color-critical: var(--critical);
   --color-critical-ink: var(--critical-ink);
   --color-critical-wash: var(--critical-wash);
-  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: Inter, 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --shadow-card: var(--shadow);
 }
 
@@ -105,10 +103,28 @@ body {
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.006em;
   -webkit-text-size-adjust: 100%;
 }
 * {
   -webkit-tap-highlight-color: transparent;
+}
+h1,
+h2 {
+  letter-spacing: -0.02em;
+}
+button,
+a,
+input,
+select,
+textarea {
+  transition: background-color 150ms, border-color 150ms, color 150ms, box-shadow 150ms, transform 100ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
 }
 button,
 [role='button'],
@@ -140,42 +156,22 @@ summary {
   scrollbar-color: var(--line-strong) transparent;
 }
 
-/* Shared workspace surfaces */
-.app-main { scroll-behavior: smooth; }
-.app-rail { background: var(--surface); }
-.app-topbar { background: var(--surface); }
-.app-page { width: 100%; margin-inline: auto; max-width: 82rem; padding: 1.75rem 1.5rem 3rem; }
-@media (min-width: 1024px) { .app-page { padding-inline: 2.5rem; padding-top: 2.25rem; } }
-@media (max-width: 479px) { .app-page { padding: 1.15rem 1rem 2rem; } }
+/* page shells used by the family view and sign-in */
+.app-page {
+  margin: 0 auto;
+  max-width: 64rem;
+  padding: 1rem;
+}
+.app-topbar {
+  background: var(--surface);
+}
 .workspace-hero {
-  position: relative;
-  isolation: isolate;
-  background: linear-gradient(115deg, var(--surface) 45%, var(--accent-wash));
+  background: var(--surface);
 }
-.workspace-hero::after {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0 0 0 auto;
-  width: min(47%, 27rem);
-  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--accent) 27%, transparent) 1px, transparent 1.5px);
-  border-radius: inherit;
-  pointer-events: none;
-  background-size: 17px 17px;
-  mask-image: linear-gradient(110deg, transparent 5%, #000 82%);
+.page-title {
+  letter-spacing: -0.03em;
 }
-.workspace-hero h1, .page-title { letter-spacing: -.035em; }
-.app-button { transition: background-color 150ms, border-color 150ms, color 150ms, transform 150ms; }
-.app-button:not(:disabled):active { transform: translateY(1px); }
-.app-button-primary { background: var(--accent); color: var(--button-ink); }
-.app-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink)); }
-.workspace-row { transition: background-color 150ms, border-color 150ms; }
-.workspace-row:hover { background-color: var(--accent-wash); }
-@media (prefers-reduced-motion: reduce) {
-  .app-main { scroll-behavior: auto; }
-  .app-button, .workspace-row { transition: none; }
-  .app-button:not(:disabled):active { transform: none; }
-}
+
 /* ---------- print (reports) ---------- */
 @page {
   size: A4;

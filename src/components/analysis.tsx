@@ -9,6 +9,7 @@ import { Icon, cx } from './ui'
 const SCALE_MAX = 150 // bars run from 0 to 150% of target
 
 export function StatusChip({ status, compact, target }: { status: Status; compact?: boolean; target?: Target }) {
+  if (status === 'unknown') return <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-1.5 py-0.5 text-[11.5px] font-medium whitespace-nowrap text-ink-2"><Icon name="info" size={12} />{!compact && 'Insufficient data'}</span>
   if (status === 'none') return <span className="text-[12px] text-muted">{compact ? '' : 'No reference'}</span>
   const tone =
     status === 'met' ? 'text-good-ink bg-good-wash' : status === 'low' ? 'text-critical-ink bg-critical-wash' : 'text-warning-ink bg-warning-wash'
@@ -65,7 +66,7 @@ export function NutrientTable({ result, targets, panel, selected, onSelect }: { 
         if (!rows.length) return null
         return (
           <div key={g} className="mb-3 last:mb-0">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">{g}</div>
+            <div className="mb-1 text-[12px] font-medium text-muted">{g}</div>
             <div className="divide-y divide-line rounded-lg border border-line">
               {rows.map((n) => {
                 const tot = result.avg[n.id]

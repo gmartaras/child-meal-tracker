@@ -31,6 +31,8 @@ const SYNONYMS: Record<string, string> = {
 let cofid: Food[] = []
 let byId = new Map<string, Food>()
 let custom = new Map<string, Food>()
+/** CoFID foods as edited by the practitioner, keyed by "c:<code>" */
+let overrides = new Map<string, Food>()
 let nutrientIds: string[] = []
 export let cofidVersion = ''
 
@@ -68,20 +70,47 @@ export async function loadCofid(): Promise<void> {
     }
   })
   byId = new Map(cofid.map((f) => [f.id, f]))
-  rebuildIndex()
+  // edits to CoFID foods may have arrived before the dataset finished loading
+  setCustomFoods(lastCustom)
 }
 
 export function customToFood(c: CustomFood): Food {
-  return { id: 'u:' + c.id, name: c.name, brand: c.brand, sourceFoodId: c.sourceFoodId, kind: c.kind, infantFormula: c.infantFormula, group: '', per: c.per, unit: c.unit, values: c.values }
+  return { id: 'u:' + c.id, name: c.name, brand: c.brand, sourceFoodId: c.sourceFoodId, kind: c.kind, infantFormula: c.infantFormula, group: '', per: c.per, unit: c.unit, values: c.values, partial: c.partial, basedOn: c.basedOn }
 }
 
+/** Document id used to store the practitioner's edits to a CoFID food. */
+export function overrideDocId(foodId: string): string {
+  return 'ovr-' + foodId.slice(2)
+}
+
+let lastCustom: CustomFood[] = []
+
 export function setCustomFoods(list: CustomFood[]): void {
-  custom = new Map(list.map((c) => [('u:' + c.id) as string, customToFood(c)]))
+  lastCustom = list
+  custom = new Map()
+  overrides = new Map()
+  for (const c of list) {
+    if (c.overrideOf) {
+      const base = byId.get(c.overrideOf)
+      if (!base) continue
+      // the edit stores only what changed; everything else still comes from CoFID
+      overrides.set(c.overrideOf, { ...base, name: c.name || base.name, values: { ...base.values, ...c.values }, edited: true })
+    } else custom.set('u:' + c.id, customToFood(c))
+  }
   rebuildIndex()
 }
 
 export function getFood(id: string): Food | undefined {
-  return byId.get(id) ?? custom.get(id)
+  return overrides.get(id) ?? byId.get(id) ?? custom.get(id)
+}
+
+/** The CoFID food exactly as published, ignoring any edits. */
+export function originalFood(id: string): Food | undefined {
+  return byId.get(id)
+}
+
+export function allCofid(): Food[] {
+  return cofid.map((f) => overrides.get(f.id) ?? f)
 }
 
 export function cofidCount(): number {
@@ -108,7 +137,7 @@ function norm(s: string): string {
 }
 
 function rebuildIndex(): void {
-  const all = [...custom.values(), ...cofid]
+  const all = [...custom.values(), ...cofid.map((f) => overrides.get(f.id) ?? f)]
   index = all.map((food) => {
     const text = norm(`${food.name} ${food.brand ?? ''} ${ALIASES[food.id]?.words ?? ''}`)
     return { food, text, words: text.split(' ') }
@@ -213,6 +242,7 @@ export const GROUP_NAMES: Record<string, string> = {
 export function groupName(food: Food): string {
   if (food.kind === 'supplement') return 'Supplement'
   if (food.kind === 'formula') return 'Formula / milk'
+  if (food.kind === 'recipe') return 'Recipe'
   if (!food.group) return 'My foods'
   return GROUP_NAMES[food.group[0]] ?? ''
 }

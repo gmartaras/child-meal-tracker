@@ -24,7 +24,6 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
   const favourites = useStore((s) => s.settings.favourites)
   const foodsVersion = useStore((s) => s.foods)
   const [q, setQ] = useState('')
-  const [limit, setLimit] = useState(30)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -40,17 +39,15 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
   }
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }))
 
-  const matches = useMemo(
-    () => searchFoods(q, { recents, favourites, limit: limit + 1, browse: true }),
+  const results = useMemo(
+    () => searchFoods(q, { recents, favourites, limit: 30 }),
     // foodsVersion: re-run when custom foods change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [q, recents, favourites, foodsVersion, limit],
+    [q, recents, favourites, foodsVersion],
   )
-  const results = matches.slice(0, limit)
-  const hasMore = matches.length > limit
   const favSet = useMemo(() => new Set(favourites), [favourites])
   const showCreate = Boolean(onCreate && q.trim().length > 1)
-  const total = results.length + Number(hasMore) + Number(showCreate)
+  const total = results.length + (showCreate ? 1 : 0)
 
   useEffect(() => setActive(0), [q])
   useEffect(() => {
@@ -61,12 +58,8 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
     if (i < results.length) {
       const f = getFood(results[i].id)
       if (f) onPick(f)
-    } else if (hasMore && i === results.length) {
-      setLimit(limit + 30)
-      return
     } else if (showCreate) onCreate!(q.trim())
     setQ('')
-    setLimit(30)
     setOpen(false)
   }
 
@@ -88,7 +81,6 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
           spellCheck={false}
           onChange={(e) => {
             setQ(e.target.value)
-            setLimit(30)
             setOpen(true)
           }}
           onFocus={() => {
@@ -122,7 +114,7 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
       </div>
       {open && total > 0 && (
         <ul ref={list} role="listbox" className="scroll-thin absolute right-0 left-0 z-30 mt-1 max-h-72 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-card">
-          {!q.trim() && <li className="px-3 pt-1 pb-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase">CoFID catalogue · favourites and recent first</li>}
+          {!q.trim() && <li className="px-3 pt-1 pb-0.5 text-[12px] font-medium text-muted">Favourites &amp; recent</li>}
           {results.map((f, i) => (
             <li
               key={f.id}
@@ -138,7 +130,7 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
             >
               <span className="min-w-0">
                 <span className="text-[13.5px]">
-                  {favSet.has(f.id) && <span className="mr-1 text-warning-ink" aria-label="favourite">★</span>}
+                  {favSet.has(f.id) && <Icon name="star" size={12} filled className="mr-1 inline align-[-1px] text-warning" />}
                   {f.name}
                 </span>
                 {f.brand && <span className="ml-1.5 text-[12px] text-muted">{f.brand}</span>}
@@ -148,25 +140,17 @@ export const FoodSearch = forwardRef<FoodSearchHandle, { onPick: (food: Food) =>
               </span>
             </li>
           ))}
-          {hasMore && <li
-            data-i={results.length}
-            role="option"
-            aria-selected={active === results.length}
-            className={cx('cursor-pointer border-t border-line px-3 py-2 text-sm text-accent-ink', active === results.length && 'bg-accent-wash')}
-            onMouseDown={e => { e.preventDefault(); choose(results.length) }}
-            onMouseMove={hover(results.length)}
-          >Show more foods</li>}
           {showCreate && (
             <li
-              data-i={results.length + Number(hasMore)}
+              data-i={results.length}
               role="option"
-              aria-selected={active === results.length + Number(hasMore)}
+              aria-selected={active === results.length}
               onMouseDown={(e) => {
                 e.preventDefault()
-                choose(results.length + Number(hasMore))
+                choose(results.length)
               }}
-              onMouseMove={hover(results.length + Number(hasMore))}
-              className={cx('flex cursor-pointer items-center gap-2 border-t border-line px-3 py-2 text-[13px] text-accent-ink', active === results.length + Number(hasMore) && 'bg-accent-wash')}
+              onMouseMove={hover(results.length)}
+              className={cx('flex cursor-pointer items-center gap-2 border-t border-line px-3 py-2 text-[13px] text-accent-ink', active === results.length && 'bg-accent-wash')}
             >
               <Icon name="plus" size={14} /> Add “{q.trim()}” as a new food from its label
             </li>

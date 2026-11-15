@@ -5,8 +5,8 @@
  */
 import firebaseConfig from '../../firebase.config.json'
 
-export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta'
-export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta']
+export type Coll = 'clients' | 'sessions' | 'assessments' | 'foods' | 'meta' | 'audit'
+export const COLLS: Coll[] = ['clients', 'sessions', 'assessments', 'foods', 'meta', 'audit']
 
 export interface Doc {
   id: string
@@ -107,7 +107,7 @@ async function cloudBackend(): Promise<Backend> {
   ])
   const app = initializeApp(cfg)
   const a = auth.getAuth(app)
-  // Offline cache: the app keeps working without signal and syncs when back online.
+  // Records are held in memory only: nothing is written to this device's disk, and closing the tab clears them.
   const db = fs.initializeFirestore(app, {
     localCache: fs.memoryLocalCache(),
     ignoreUndefinedProperties: true,
@@ -132,6 +132,13 @@ async function cloudBackend(): Promise<Backend> {
     },
     async signOut() {
       await auth.signOut(a)
+      // drop the in-memory records and start clean
+      try {
+        await fs.terminate(db)
+      } catch (e) {
+        console.warn('Could not end the database session cleanly', e)
+      }
+      window.location.reload()
     },
     watch(coll, cb, onError) {
       return fs.onSnapshot(

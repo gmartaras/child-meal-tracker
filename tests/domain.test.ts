@@ -166,3 +166,59 @@ describe('measures and insights', () => {
     expect(ins[0].severity).toBe('critical')
   })
 })
+
+import { splitDiaryByDay, parseSensory } from '../src/domain/parse'
+import { computeRecipe } from '../src/domain/recipe'
+import { overrideDocId, originalFood } from '../src/domain/foods'
+
+describe('pasted records', () => {
+  it('splits a diary on its day headings', () => {
+    const d = splitDiaryByDay('**Day 1 (Sat 14 Nov):**\n\nBreakfast: toast\n\nLunch: pasta\n\n**Day 2:**\n\nBreakfast: cereal\n\nDay 3: Sunday\n- 8am milk')
+    expect(d.map((x) => x.label)).toEqual(['Day 1 · Sat 14 Nov', 'Day 2', 'Day 3 · Sunday'])
+    expect(d[0].text).toBe('Breakfast: toast\n\nLunch: pasta')
+    expect(d[2].text).toBe('- 8am milk')
+    expect(splitDiaryByDay('toast and jam')).toEqual([{ label: '', text: 'toast and jam' }])
+  })
+  it('reads answers from a pasted checklist', () => {
+    const rows = parseSensory('SENSORY CHECKLIST\nChild’s Name:\n\n**TOUCH**\nDislikes loud unexpected touch–No\nAvoids being held or cuddled–YES, only by one parent\nMay frequently remove clothing–Sometimes\n\n**TASTE AND ORAL**\nPrefers dry, crunchy foods  –YES\nSleeps well. Give details\nWakes often at night')
+    expect(rows.map((r) => [r.section, r.answer])).toEqual([['Touch', 'no'], ['Touch', 'yes'], ['Touch', 'sometimes'], ['Taste and oral', 'yes'], ['Taste and oral', '']])
+    expect(rows[1].comment).toBe('only by one parent')
+    expect(rows[0].comment).toBe('')
+    expect(rows[4].comment).toBe('Wakes often at night')
+  })
+})
+
+describe('library', () => {
+  it('calculates a recipe per 100 g of the cooked dish', () => {
+    const ing = (foodId: string, amount: number) => ({ id: foodId, foodId, name: foodId, amount, qty: amount, measure: 'g', measureAmount: 1, unit: 'g' })
+    const r = computeRecipe({ ingredients: [ing('c:12-596', 200), ing('c:17-377', 100)], portions: 2 })
+    expect(r.rawWeight).toBe(300)
+    expect(r.values.energy).toBeCloseTo(42, 6) // 126 kcal in 300 g
+    expect(r.portionWeight).toBe(150)
+    const cooked = computeRecipe({ ingredients: [ing('c:12-596', 200), ing('c:17-377', 100)], cookedWeight: 200, portions: 2 })
+    expect(cooked.values.energy).toBeCloseTo(63, 6)
+    expect(cooked.values.calcium).toBeCloseTo(120, 6)
+  })
+  it('marks recipe nutrients as minimums when an ingredient has no value', () => {
+    const ing = (foodId: string, amount: number) => ({ id: foodId, foodId, name: foodId, amount, qty: amount, measure: 'g', measureAmount: 1, unit: 'g' })
+    const r = computeRecipe({ ingredients: [ing('c:12-596', 100), ing(BREAST_MILK_ID, 100)], portions: 1 })
+    expect(r.partial).toContain('vitd')
+    expect(r.partial).not.toContain('energy')
+  })
+  it('applies and reverts an edit to a CoFID food', () => {
+    const before = getFood('c:12-596')!.values.iron
+    setCustomFoods([{ id: overrideDocId('c:12-596'), overrideOf: 'c:12-596', name: '', kind: 'food', per: 100, unit: 'g', values: { iron: 9 }, updatedAt: 0 }])
+    expect(getFood('c:12-596')).toMatchObject({ edited: true, name: 'Milk, whole, pasteurised, average' })
+    expect(getFood('c:12-596')!.values.iron).toBe(9)
+    expect(getFood('c:12-596')!.values.calcium).toBe(120)
+    expect(originalFood('c:12-596')!.values.iron).toBe(before)
+    setCustomFoods([])
+    expect(getFood('c:12-596')!.edited).toBeUndefined()
+    expect(getFood('c:12-596')!.values.iron).toBe(before)
+  })
+  it('leaves refused foods out of the totals', () => {
+    const r = computeAssessment({ days: [day('1', [item('c:12-596', 100), item('c:12-596', 500, { refused: true })])] })
+    expect(r.avg.energy.v).toBeCloseTo(63, 6)
+    expect(r.itemCount).toBe(1)
+  })
+})

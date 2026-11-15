@@ -283,6 +283,7 @@ export default function ReportPage() {
                         {it.name}: <span className="tnum">{it.measure === it.unit ? `${num(it.amount)} ${it.unit}` : `${num(it.qty)} × ${it.measure}${/\d\s*(g|ml)\)/.test(it.measure) && it.qty === 1 ? '' : ` (${num(it.amount)} ${it.unit})`}`}</span>
                         {it.freq && <span className="text-ink-2">, {it.freq.times} × per {it.freq.per}</span>}
                         {it.estimate && <span className="text-ink-2"> [estimated]</span>}
+                        {it.refused && <span className="text-ink-2"> [offered, not eaten]</span>}
                       </li>
                     ))}
                   </ul>

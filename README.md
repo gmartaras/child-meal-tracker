@@ -3,14 +3,20 @@
 A private web app for a paediatric dietitian: enter a child's food history, see intake against UK
 reference values, and track progress across consultations.
 
-- **Food data:** McCance and Widdowson's Composition of Foods Integrated Dataset 2021 (CoFID), 2,887 foods,
-  plus your own branded foods, formula milks and supplements.
-- **Food histories:** multi-day diary, typical day, or food frequency.
-- **Analysis:** daily intake of energy, macronutrients, minerals and vitamins against UK DRVs for the
-  child's age and sex, top food sources of each nutrient, rule-based insights, and data-gap warnings.
-- **Per client:** pinned key context, dated session notes, weight and height log, trend charts,
-  per-child target overrides.
-- **Outputs:** parent summary and clinical report (print or save as PDF), Excel export, full backup file.
+- **Food library:** all 2,887 foods of McCance and Widdowson's CoFID 2021, editable in place with
+  one-click revert, plus your own foods, formula milks, supplements, ready-sized versions
+  (for example "half a banana") and recipes whose nutrients are calculated from their ingredients.
+- **Food histories:** one entry screen. Paste the family's 3-day food history beside it, enter
+  foods by household measure, mark foods that were offered but not eaten, and switch between a
+  recorded diary and usual intake.
+- **Analysis:** daily intake against UK reference values for the child's age and sex, top food
+  sources of each nutrient, rule-based insights, and data-gap warnings.
+- **Per client:** key context, structured session notes with agreed actions, a process checklist,
+  accepted foods list, sample meal plan with food chaining ideas, sensory checklist, weight and
+  height, and progress charts.
+- **Outputs:** parent summary, clinical report, meal plan and accepted-foods sheets (print or save
+  as PDF), Excel export, full-record export, encrypted backup.
+- **Data protection:** see [`docs/data-protection.md`](docs/data-protection.md).
 
 ## Before clinical use
 
@@ -21,12 +27,13 @@ These parts were written for the app and have **not** been verified by a dietiti
 | UK reference values (RNI, LRNI, energy EAR, fibre, vitamin D, salt) | Settings → Reference values → Show the full tables |
 | Breast-milk volume assumptions (135 ml/feed under 8 months, 100 ml/feed after, 780 ml and 600 ml full-day figures) | Settings → Breast milk estimates |
 | Household measures (typical portion weights) | Shown on every food line; `src/domain/measures.ts` |
-| Preloaded supplements (Healthy Start drops, vitamin D 8.5 and 10 µg) | My foods & supplements |
+| Preloaded supplements (Healthy Start drops, vitamin D 8.5 and 10 µg) | Food library → Supplements |
 
 Things the data cannot do:
 
 - CoFID 2021 has **no infant formula or growing-up milks**. Add the products your clients use under
-  My foods → Formula & milks, from the manufacturer's data card.
+  Food library → Formula & milks, from the manufacturer's data card.
+- Recipes add up their ingredients; no allowance is made for vitamin losses in cooking.
 - CoFID gives **total sugars only**, so free sugars cannot be calculated.
 - Many foods have no iodine, selenium, AOAC fibre, biotin or vitamin E value. The app never counts a
   missing value as zero: the total is shown with "≥" and the foods concerned are listed.

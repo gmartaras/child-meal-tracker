@@ -1,16 +1,16 @@
-import { useRef, useState, type ReactNode } from 'react'
-import { Banner, Button, Card, Field, IconButton, Input, confirmDialog, cx } from '../components/ui'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Banner, Button, Card, Field, IconButton, Input, Textarea, confirmDialog, cx } from '../components/ui'
 import { BANDS, ENERGY_CHILD, ENERGY_INFANT, LRNI, RNI, SALT_MAX } from '../domain/drv'
 import { cofidCount, cofidVersion, getFood } from '../domain/foods'
 import { GROUP_ORDER, NUTRIENTS, NUTRIENT_BY_ID } from '../domain/nutrients'
-import type { BreastMilkSettings } from '../domain/types'
-import { downloadBackup } from '../lib/export'
+import { DEFAULT_CHECKLIST, MEAL_NAMES, type BreastMilkSettings } from '../domain/types'
+import { downloadBackup, readBackup } from '../lib/export'
 import { cloudConfigured } from '../store/backend'
-import { DEFAULT_SETTINGS, useStore, type Backup } from '../store/store'
+import { DEFAULT_SETTINGS, useStore } from '../store/store'
 
-function Section({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
+function Section({ title, intro, children, id }: { title: string; intro?: ReactNode; children: ReactNode; id?: string }) {
   return (
-    <section className="grid gap-4 rounded-xl border border-line bg-surface p-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8">
+    <section id={id} className="grid gap-3 border-t border-line py-6 first:border-0 lg:grid-cols-[240px_1fr] lg:gap-8">
       <div>
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {intro && <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{intro}</p>}
@@ -54,7 +54,19 @@ export default function SettingsPage() {
   const exportBackup = useStore((s) => s.exportBackup)
   const importBackup = useStore((s) => s.importBackup)
   const counts = useStore((s) => `${s.clients.length} clients, ${s.assessments.length} food histories, ${s.sessions.length} sessions, ${s.foods.length} custom foods`)
+  const audit = useStore((s) => s.audit)
+  const logAudit = useStore((s) => s.logAudit)
+  const clients = useStore((s) => s.clients)
+  const [password, setPassword] = useState('')
   const file = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (window.location.hash.endsWith('#backup')) document.getElementById('backup')?.scrollIntoView()
+  }, [])
+  const lines = (v: string) => v.split('\n').map((x) => x.trim()).filter(Boolean)
+  const retentionAge = settings.retentionAge ?? 25
+  const today = new Date().toISOString().slice(0, 10)
+  const due = clients.filter((c) => `${Number(c.dob.slice(0, 4)) + retentionAge}${c.dob.slice(4)}` <= today)
+  const noNotice = clients.filter((c) => !c.privacyNoticeOn && !c.archived)
   const logo = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [showRef, setShowRef] = useState(false)
@@ -70,13 +82,22 @@ export default function SettingsPage() {
 
   const onRestore = async (f: File) => {
     try {
-      const data = JSON.parse(await f.text()) as Backup
+      const data = await readBackup(await f.text(), () => window.prompt('This backup is encrypted. Enter its password:'))
       if (!confirmDialog(`Restore ${data.clients?.length ?? 0} clients and ${data.assessments?.length ?? 0} food histories from this backup (${data.exportedAt?.slice(0, 10)})? Records with the same ID are overwritten; nothing else is deleted.`)) return
       const n = await importBackup(data)
+      logAudit('restore', `${n} records from backup dated ${data.exportedAt?.slice(0, 10)}`)
       setMsg(`Restored ${n} records.`)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Could not read that file.')
     }
+  }
+  const onBackup = async () => {
+    if (!password && !confirmDialog('Download the backup WITHOUT a password? Anyone who gets the file could read the client records. Cancel to go back and set a password.')) return
+    await downloadBackup(exportBackup(), password || undefined)
+    logAudit('backup', password ? 'encrypted backup downloaded' : 'unencrypted backup downloaded')
+    update({ lastBackupAt: Date.now() })
+    setPassword('')
+    setMsg(password ? 'Encrypted backup downloaded. Keep the password somewhere safe: without it the file cannot be opened.' : 'Backup downloaded.')
   }
   const onLogo = (f: File) => {
     if (f.size > 300_000) return setMsg('Please choose a logo under 300 KB.')
@@ -86,13 +107,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="app-page">
-      <header className="workspace-hero rounded-2xl border border-line p-5 sm:p-7">
-        <h1 className="page-title text-3xl font-semibold">Settings</h1>
-        <p className="mt-2 text-sm text-ink-2">Practice details, nutrient references and data backups.</p>
-      </header>
+    <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7">
+      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 
-      <div className="mt-5 space-y-4">
+      <div className="mt-2">
         <Section title="Practice details" intro="Shown in the header of printed reports.">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Practice name"><Input defaultValue={settings.practiceName} onBlur={(e) => update({ practiceName: e.target.value.trim() })} /></Field>
@@ -106,10 +124,21 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        <Section title="Your process" intro="Shape the app around how you work. These apply to new food histories and to every client’s checklist.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Meal headings in a food history" hint="One per line, in the order of your food history template.">
+              <Textarea key={(settings.mealNames ?? MEAL_NAMES).join('|')} rows={6} defaultValue={(settings.mealNames ?? MEAL_NAMES).join('\n')} onBlur={(e) => update({ mealNames: lines(e.target.value).length ? lines(e.target.value) : [...MEAL_NAMES] })} />
+            </Field>
+            <Field label="Process checklist for each client" hint="One step per line. Ticked off on the client’s overview.">
+              <Textarea key={(settings.checklist ?? DEFAULT_CHECKLIST).join('|')} rows={6} defaultValue={(settings.checklist ?? DEFAULT_CHECKLIST).join('\n')} onBlur={(e) => update({ checklist: lines(e.target.value).length ? lines(e.target.value) : [...DEFAULT_CHECKLIST] })} />
+            </Field>
+          </div>
+        </Section>
+
         <Section title="Nutrients shown" intro="Choose what appears in analyses, charts, reports and exports. Every nutrient in CoFID is always calculated, so you can switch more on at any time.">
           {GROUP_ORDER.map((g) => (
             <div key={g} className="mb-3 last:mb-0">
-              <div className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase">{g}</div>
+              <div className="mb-1.5 text-[12px] font-medium text-muted">{g}</div>
               <div className="flex flex-wrap gap-1.5">
                 {NUTRIENTS.filter((n) => n.group === g).map((n) => {
                   const on = settings.panel.includes(n.id)
@@ -134,10 +163,11 @@ export default function SettingsPage() {
             <Field label="Full day, main milk with solids (ml)"><Input key={bm.mainMilkDay} inputMode="decimal" defaultValue={bm.mainMilkDay} onBlur={(e) => setBm('mainMilkDay', e.target.value)} /></Field>
             <Field label="Density (g per ml)"><Input key={bm.density} inputMode="decimal" defaultValue={bm.density} onBlur={(e) => setBm('density', e.target.value)} /></Field>
           </div>
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-3"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--ink)]" checked={Boolean(bm.estimatesApproved)} onChange={(e) => update({ bm: { ...bm, estimatesApproved: e.target.checked } })} /><span className="text-[13px]"><span className="font-medium">I have reviewed these volumes and want estimated breastfeeds offered when logging</span><span className="mt-0.5 block text-[12.5px] text-ink-2">Until this is ticked, breast milk can only be logged with a measured volume, or marked as “volume unknown” on the food history.</span></span></label>
           <p className="mt-2 text-[12px] text-muted">Composition comes from CoFID “Milk, human, mature”, which has no vitamin D value. Anything logged with an estimated volume is labelled as an estimate in the analysis and on reports.</p>
         </Section>
 
-        <Section title="Reference values" intro="These age-based benchmarks are separate from the CoFID food data. They help compare recorded intake with UK guidance. Check the benchmark and any estimated portion or breast-milk amount before using the comparison to advise a family.">
+        <Section title="Reference values" intro="The UK dietary reference values built into the app. Please check them against the published sources before relying on them clinically; tell me if any figure needs correcting.">
           <Banner tone="warning">Transcribed from COMA 1991 (RNI, LRNI), SACN 2011 (energy), SACN 2015 (fibre), SACN 2016 (vitamin D) and SACN 2003 (salt). Not yet verified by a dietitian.</Banner>
           <Button size="sm" className="mt-3" onClick={() => setShowRef(!showRef)}>{showRef ? 'Hide tables' : 'Show the full tables'}</Button>
           {showRef && (
@@ -190,23 +220,60 @@ export default function SettingsPage() {
           )}
         </Section>
 
-        <Section title="Backup and restore" intro="Download a complete copy of your data as one file and keep it somewhere safe, such as an encrypted drive. The app reminds you monthly.">
+        <Section id="backup" title="Backup and restore" intro="Download a complete copy of your records as one file. Set a password and the file is encrypted, so it is safe to keep on a drive or in cloud storage.">
           <p className="mb-3 text-[13px] text-ink-2">Currently stored: {counts}.{settings.lastBackupAt ? ` Last backup downloaded ${new Date(settings.lastBackupAt).toLocaleDateString('en-GB')}.` : ' No backup downloaded yet.'}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="primary" icon="download" onClick={() => (downloadBackup(exportBackup()), update({ lastBackupAt: Date.now() }))}>Download backup</Button>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Password for the backup file" className="w-64"><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="at least 10 characters" /></Field>
+            <Button variant="primary" icon="download" disabled={password.length > 0 && password.length < 10} onClick={onBackup}>Download {password ? 'encrypted ' : ''}backup</Button>
             <input ref={file} type="file" accept="application/json,.json" className="hidden" onChange={(e) => (e.target.files?.[0] && onRestore(e.target.files[0]), (e.target.value = ''))} />
             <Button icon="upload" onClick={() => file.current?.click()}>Restore from a backup file</Button>
           </div>
           {msg && <p className="mt-2 text-[13px] text-ink-2" role="status">{msg}</p>}
-          <p className="mt-2 text-[12px] text-muted">The backup file contains client data in readable form. Store it as carefully as you would paper records.</p>
+          <p className="mt-2 text-[12px] text-muted">The password is never stored. If you lose it, the encrypted file cannot be opened by anyone, including you.</p>
         </Section>
 
-        <Section title="Storage and account">
+        <Section title="Security on this device" intro="Controls that protect the records if a laptop or phone is lost, borrowed or left open.">
           {mode === 'cloud' ? (
-            <Banner>Signed in as <strong className="font-semibold">{user?.email}</strong>. Data is stored in your Firebase project and syncs across your devices; changes made offline are sent when you reconnect.</Banner>
+            <Banner>Signed in as <strong className="font-semibold">{user?.email}</strong>. Records are stored in your Firebase project.</Banner>
           ) : (
-            <Banner tone="warning">{cloudConfigured ? 'Cloud storage is configured but not active.' : 'Cloud storage is not connected yet, so data lives only in this browser.'} Follow the setup guide (README) to create your Firebase project, then your data can be moved across with Backup → Restore.</Banner>
+            <Banner tone="warning">{cloudConfigured ? 'Cloud storage is configured but not active.' : 'Cloud storage is not connected, so data lives only in this browser and these controls have no effect yet.'}</Banner>
           )}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Field label="Sign out automatically after (minutes)" hint="With no clicks or typing. 0 switches this off.">
+              <Input key={settings.autoLockMin} inputMode="numeric" className="tnum w-28" defaultValue={settings.autoLockMin ?? 30} onBlur={(e) => { const x = parseInt(e.target.value); update({ autoLockMin: isFinite(x) && x >= 0 ? x : 30 }) }} />
+            </Field>
+<div className="rounded-lg border border-line p-3 text-[13px]"><span className="font-medium">No copy is kept on this device</span><span className="mt-0.5 block text-[12.5px] text-ink-2">Records are held in memory only while the app is open and are cleared when the tab closes. The app needs a connection to load and save.</span></div>
+          </div>
+          <p className="mt-2 text-[12px] text-muted">Wait for “Saved to cloud” before closing the tab: an unsaved edit is lost if the tab closes first.</p>
+        </Section>
+
+        <Section title="Data protection" intro={<>What the app does to support UK GDPR, and what stays with you as the data controller. The full write-up is in <code className="text-[12px]">docs/data-protection.md</code>.</>}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Keep each child’s record until age" hint="Shown on every client’s overview as the date to review and delete. Confirm the period with your professional body or insurer.">
+              <Input key={retentionAge} inputMode="numeric" className="tnum w-28" defaultValue={retentionAge} onBlur={(e) => { const x = parseInt(e.target.value); update({ retentionAge: isFinite(x) && x > 0 ? x : 25 }) }} />
+            </Field>
+            <div className="space-y-1.5 text-[13px]">
+              <div className={due.length ? 'text-warning-ink' : 'text-ink-2'}>{due.length ? `${due.length} record${due.length === 1 ? ' has' : 's have'} reached the retention age: ${due.map((c) => c.code).join(', ')}` : 'No records have reached the retention age.'}</div>
+              <div className={noNotice.length ? 'text-warning-ink' : 'text-ink-2'}>{noNotice.length ? `${noNotice.length} active client${noNotice.length === 1 ? ' has' : 's have'} no privacy-notice date recorded: ${noNotice.map((c) => c.code).join(', ')}` : 'Every active client has a privacy-notice date.'}</div>
+            </div>
+          </div>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-ink-2">
+            <li>Each client’s menu has <strong className="font-medium text-ink">Export full record</strong> (for an access or portability request) and <strong className="font-medium text-ink">Delete client and all data</strong> (for an erasure request).</li>
+            <li>Only a first name, date of birth, sex and your code are asked for. The name typed on a report is not saved.</li>
+            <li>Nothing is sent to analytics, advertising or AI services. The only outside service is Google Firebase, in London.</li>
+          </ul>
+          <details className="mt-3">
+            <summary className="text-[13px] font-medium text-accent-ink">Access log ({audit.length})</summary>
+            <p className="mt-1 text-[12px] text-muted">Sign-ins, exports, backups, restores and deletions on this account. Entries cannot be edited or removed from within the app.</p>
+            <Card className="mt-2 max-h-64 overflow-y-auto">
+              <table className="tnum w-full text-[12.5px]">
+                <tbody className="divide-y divide-line">
+                  {audit.slice(0, 200).map((a) => <tr key={a.id}><td className="px-3 py-1 whitespace-nowrap text-ink-2">{new Date(a.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</td><td className="px-3 py-1 font-medium">{a.action}</td><td className="px-3 py-1 text-ink-2">{a.detail}</td></tr>)}
+                  {!audit.length && <tr><td className="px-3 py-2 text-muted">Nothing logged yet.</td></tr>}
+                </tbody>
+              </table>
+            </Card>
+          </details>
         </Section>
 
         <Section title="About the data">
