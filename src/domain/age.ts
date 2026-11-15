@@ -11,6 +11,7 @@ export function todayISO(): string {
 
 /** Completed months between two dates, with a fractional part for the remaining days. */
 export function ageInMonths(dob: string, at: string): number {
+  if (!dob) return NaN
   const a = parseDate(dob)
   const b = parseDate(at)
   let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
@@ -21,6 +22,7 @@ export function ageInMonths(dob: string, at: string): number {
 }
 
 export function formatAge(months: number): string {
+  if (!Number.isFinite(months)) return 'Age unknown'
   const whole = Math.floor(months + 1e-9)
   if (whole < 1) {
     const weeks = Math.floor((months * 30.44) / 7)

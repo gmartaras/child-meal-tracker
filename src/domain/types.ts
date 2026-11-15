@@ -158,7 +158,7 @@ export interface Client {
   code: string
   firstName: string
   dob: string // yyyy-mm-dd
-  sex: Sex
+  sex: Sex | ''
   feeding: Feeding
   context: string // pinned key context
   /** per-child target overrides, keyed by nutrient id */

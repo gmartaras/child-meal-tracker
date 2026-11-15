@@ -320,7 +320,8 @@ export default function AssessmentPage() {
   const missingQuantity = (d: Day) => dayItems(d).some(i => !i.refused && !(i.amount > 0))
   const quantityDay = draft.days.find(d => !d.excluded && missingQuantity(d))
   const nextDay = quantityDay ?? incompleteDays[0]
-  const whyBlocked = saveFailed
+  const profileIncomplete = !client.dob || !client.sex
+  const whyBlocked = profileIncomplete ? 'Add the date of birth and sex in the client record before finalising.' : saveFailed
     ? 'Your edits could not be saved. Choose Retry save.'
     : !saved || savingDay
       ? 'Waiting for your changes to save.'
@@ -335,6 +336,7 @@ export default function AssessmentPage() {
     if (await flush()) nav(`/c/${client.id}/report/${draft.id}/${kind}`)
   }
   const finalise = async () => {
+    if (whyBlocked) return
     if (!confirmDialog('Save this food history as final? It can no longer be edited; later corrections are saved as an amendment.')) return
     setFinalising(true)
     // freeze every food's values and the analysis exactly as they stand now
@@ -687,7 +689,7 @@ export default function AssessmentPage() {
             </div>
           )}
           <p className="mt-3 text-[12px] text-muted">
-            {usual ? 'Estimated daily average from usual intake' : `Average of ${analysis.result.nDays} recorded day${analysis.result.nDays === 1 ? '' : 's'}`} · reference values for {formatAge(ageMonths)}, {client.sex === 'M' ? 'boy' : 'girl'}
+            {usual ? 'Estimated daily average from usual intake' : `Average of ${analysis.result.nDays} recorded day${analysis.result.nDays === 1 ? '' : 's'}`}{profileIncomplete ? ' · reference values need date of birth and sex' : ` · reference values for ${formatAge(ageMonths)}, ${client.sex === 'M' ? 'boy' : 'girl'}`}
           </p>
         </Card>
         <Card className="p-4">

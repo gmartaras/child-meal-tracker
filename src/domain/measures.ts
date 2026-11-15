@@ -150,11 +150,11 @@ export function measuresFor(
   const out: Measure[] = []
   if (food.id === BREAST_MILK_ID && ctx.bm) {
     const bm = ctx.bm
-    const age = ctx.ageMonths ?? 0
+    const age = ctx.ageMonths ?? NaN
     const feed = breastFeedVolume(age, bm)
-    if (bm.estimatesApproved) out.push({ label: `breastfeed (est. ${feed} ml)`, amount: feed * bm.density, estimate: true })
-    if (bm.estimatesApproved) out.push({ label: `full day, exclusively breastfed (est. ${bm.exclusiveDay} ml)`, amount: bm.exclusiveDay * bm.density, estimate: true })
-    if (bm.estimatesApproved) out.push({ label: `full day, main milk with solids (est. ${bm.mainMilkDay} ml)`, amount: bm.mainMilkDay * bm.density, estimate: true })
+    if (bm.estimatesApproved && Number.isFinite(age)) out.push({ label: `breastfeed (est. ${feed} ml)`, amount: feed * bm.density, estimate: true })
+    if (bm.estimatesApproved && Number.isFinite(age)) out.push({ label: `full day, exclusively breastfed (est. ${bm.exclusiveDay} ml)`, amount: bm.exclusiveDay * bm.density, estimate: true })
+    if (bm.estimatesApproved && Number.isFinite(age)) out.push({ label: `full day, main milk with solids (est. ${bm.mainMilkDay} ml)`, amount: bm.mainMilkDay * bm.density, estimate: true })
     out.push({ label: 'ml (measured / expressed)', amount: bm.density })
     out.push({ label: 'fl oz (28 ml)', amount: 28.4 * bm.density })
     out.push(...(ctx.userMeasures ?? []))

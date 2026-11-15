@@ -218,7 +218,7 @@ function Checklist({ client }: { client: Client }) {
 function RecordDetails({ client, onEdit }: { client: Client; onEdit: () => void }) {
   const retentionAge = useStore((s) => s.settings.retentionAge) ?? 25
   const y = Number(client.dob.slice(0, 4)) + retentionAge
-  const reviewOn = `${y}${client.dob.slice(4)}`
+  const reviewOn = client.dob ? `${y}${client.dob.slice(4)}` : ''
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between gap-3 py-1 text-[13px]"><dt className="text-ink-2">{label}</dt><dd className="text-right">{value}</dd></div>
   )
@@ -232,7 +232,7 @@ function RecordDetails({ client, onEdit }: { client: Client; onEdit: () => void 
         {row('Shared folder', client.folderUrl ? <a href={client.folderUrl} target="_blank" rel="noreferrer noopener" className="font-medium text-accent-ink hover:underline">Open folder <Icon name="external" size={12} className="inline align-[-1px]" /></a> : <span className="text-muted">not linked</span>)}
         {row('Privacy notice given', client.privacyNoticeOn ? formatDate(client.privacyNoticeOn) : <span className="text-warning-ink">not recorded</span>)}
         {row('Discharged', client.dischargedOn ? formatDate(client.dischargedOn) : <span className="text-muted">active</span>)}
-        {row('Keep record until', <span title={`Age ${retentionAge}, set in Settings → Data protection`}>{formatDate(reviewOn)}</span>)}
+        {row('Keep record until', <span title={`Age ${retentionAge}, set in Settings → Data protection`}>{reviewOn ? formatDate(reviewOn) : 'Date of birth needed'}</span>)}
       </dl>
     </Card>
   )
@@ -345,7 +345,7 @@ export default function ClientPage() {
           <div className="flex flex-wrap items-baseline gap-x-3">
             <h1 className="truncate text-xl font-semibold tracking-tight">{client.firstName}</h1>
             <span className="text-[13px] text-ink-2">
-              {formatAge(age)} · {client.sex === 'M' ? 'boy' : 'girl'} · born {formatDate(client.dob)}{client.feeding !== 'na' ? ` · ${FEEDING_LABEL[client.feeding].toLowerCase()}` : ''} · <span className="tnum">{client.code}</span>
+              {formatAge(age)}{client.sex && ` · ${client.sex === 'M' ? 'boy' : 'girl'}`}{client.dob && ` · born ${formatDate(client.dob)}`}{client.feeding !== 'na' ? ` · ${FEEDING_LABEL[client.feeding].toLowerCase()}` : ''} · <span className="tnum">{client.code}</span>
               {client.archived && <span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-[11.5px]">archived</span>}
             </span>
           </div>

@@ -15,13 +15,13 @@ export function ClientForm({ client, onClose, onSaved }: { client?: Client; onCl
   const saveClient = useStore((s) => s.saveClient)
   const [firstName, setFirstName] = useState(client?.firstName ?? '')
   const [dob, setDob] = useState(client?.dob ?? '')
-  const [sex, setSex] = useState<Sex>(client?.sex ?? 'F')
+  const [sex, setSex] = useState<Sex | ''>(client?.sex ?? '')
   const [feeding, setFeeding] = useState<Feeding>(client?.feeding ?? 'na')
   const [code, setCode] = useState(client?.code ?? '')
   const [folderUrl, setFolderUrl] = useState(client?.folderUrl ?? '')
   const [privacyNoticeOn, setPrivacy] = useState(client?.privacyNoticeOn ?? '')
   const [dischargedOn, setDischarged] = useState(client?.dischargedOn ?? '')
-  const valid = firstName.trim() && /^\d{4}-\d{2}-\d{2}$/.test(dob) && dob <= todayISO()
+  const valid = firstName.trim() && (!dob || (/^\d{4}-\d{2}-\d{2}$/.test(dob) && dob <= todayISO()))
   return (
     <Modal
       wide
@@ -49,7 +49,7 @@ export function ClientForm({ client, onClose, onSaved }: { client?: Client; onCl
         <Field label="Date of birth" hint="Used to pick age-appropriate reference values."><Input type="date" max={todayISO()} value={dob} onChange={(e) => setDob(e.target.value)} /></Field>
         <div>
           <span className="mb-1 block text-[12px] font-medium text-ink-2">Sex</span>
-          <Segmented value={sex} onChange={setSex} options={[{ id: 'F', label: 'Girl' }, { id: 'M', label: 'Boy' }]} />
+          <Segmented value={sex} onChange={setSex} options={[{ id: '', label: 'Unrecorded' }, { id: 'F', label: 'Girl' }, { id: 'M', label: 'Boy' }]} />
         </div>
         <Field label="Milk feeding" hint="Sets the energy requirement used under 12 months.">
           <Select value={feeding} onChange={(e) => setFeeding(e.target.value as Feeding)}>

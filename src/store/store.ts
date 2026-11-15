@@ -214,7 +214,7 @@ export const useStore = create<State>((set, get) => {
         get().updateSettings({ nextClientNo: s.nextClientNo + 1 })
       }
       const doc: Client = {
-        sex: 'F',
+        sex: '',
         feeding: 'na',
         context: '',
         createdAt: now,

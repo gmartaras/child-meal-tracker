@@ -51,7 +51,7 @@ export async function exportClientExcel(client: Client, assessments: Assessment[
   }
   const about: Cell[][] = [
     [h('Client code'), t(client.code)], [h('First name'), t(client.firstName)], [h('Date of birth'), t(client.dob)],
-    [h('Sex'), t(client.sex === 'M' ? 'Male' : 'Female')], [h('Key context'), t(client.context)],
+    [h('Sex'), t(client.sex === 'M' ? 'Male' : client.sex === 'F' ? 'Female' : '')], [h('Key context'), t(client.context)],
     [h('Exported'), t(new Date().toLocaleString('en-GB'))],
     [h('Data source'), t('McCance and Widdowson’s Composition of Foods Integrated Dataset 2021 (Public Health England), Open Government Licence v3.0')],
   ]

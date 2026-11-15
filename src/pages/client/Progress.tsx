@@ -104,7 +104,7 @@ function Targets({ client }: { client: Client }) {
   const panel = useStore((s) => s.settings.panel)
   const [open, setOpen] = useState(Object.keys(client.targets ?? {}).length > 0)
   const age = ageInMonths(client.dob, todayISO())
-  const ref = referenceTargets(age, client.sex, client.feeding)
+  const ref = client.sex && client.dob ? referenceTargets(age, client.sex, client.feeding) : {}
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(client.targets ?? {}).map(([k, v]) => [k, String(v)])))
   const commit = (next: Record<string, string>) => {
     const targets: Record<string, number> = {}
@@ -116,6 +116,7 @@ function Targets({ client }: { client: Client }) {
   }
   const shown = NUTRIENTS.filter((n) => panel.includes(n.id))
   const nCustom = Object.keys(client.targets ?? {}).length
+  if (!client.dob || !client.sex) return <Card className="p-4 text-[13px] text-ink-2">Add the date of birth and sex in the client record to use reference values.</Card>
   if (!open) {
     return (
       <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px]">

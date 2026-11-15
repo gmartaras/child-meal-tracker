@@ -241,3 +241,17 @@ test('uses a branded label portion in a diary and retains the consulted source',
   expect(foods[0].snap.labelSource.version).toBe('uk-branded-2026-11-15.1')
   expect(foods[0].snap.values.energy).toBe(362)
 })
+
+test('keeps an incomplete client profile usable for a draft and blocks finalising', async ({ page }) => {
+  await page.goto('/?demo=1')
+  await page.evaluate(() => {
+    localStorage.setItem('mealtrace:clients', JSON.stringify([{id:'pending', firstName:'Synthetic draft',
+      code:'PENDING', dob:'', sex:'', feeding:'na', context:'', createdAt:1, updatedAt:1}]))
+  })
+  await page.goto('/?demo=1#/c/pending')
+  await page.reload()
+  await expect(page.getByText('Age unknown', {exact:false}).first()).toBeVisible()
+  await page.getByRole('button',{name:'Food history',exact:true}).first().click()
+  await expect(page.getByRole('button',{name:'Finalise',exact:true})).toBeDisabled()
+  await expect(page.getByText('Add the date of birth and sex in the client record before finalising.')).toBeVisible()
+})

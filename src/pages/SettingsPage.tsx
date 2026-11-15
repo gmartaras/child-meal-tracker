@@ -65,7 +65,7 @@ export default function SettingsPage() {
   const lines = (v: string) => v.split('\n').map((x) => x.trim()).filter(Boolean)
   const retentionAge = settings.retentionAge ?? 25
   const today = new Date().toISOString().slice(0, 10)
-  const due = clients.filter((c) => `${Number(c.dob.slice(0, 4)) + retentionAge}${c.dob.slice(4)}` <= today)
+  const due = clients.filter((c) => c.dob && `${Number(c.dob.slice(0, 4)) + retentionAge}${c.dob.slice(4)}` <= today)
   const noNotice = clients.filter((c) => !c.privacyNoticeOn && !c.archived)
   const logo = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState<string | null>(null)

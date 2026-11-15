@@ -14,9 +14,10 @@ export interface Analysis {
 export function analyse(a: Assessment, client: Client, settings: Settings, prev?: Assessment): Analysis {
   if (a.state === "finalised" && a.snapshot) return a.snapshot.analysis
   const ageMonths = ageInMonths(client.dob, a.date)
-  const targets = targetsFor(ageMonths, client.sex, client.feeding, client.targets)
   const result = computeAssessment(a)
   if (a.unquantifiedBreastMilk) for (const total of Object.values(result.avg)) total.missing.push('Unquantified breast milk')
+  if (!Number.isFinite(ageMonths) || !client.sex) return {ageMonths, targets: {}, result, insights: []}
+  const targets = targetsFor(ageMonths, client.sex, client.feeding, client.targets)
   const previous = prev
     ? {
         result: computeAssessment(prev),

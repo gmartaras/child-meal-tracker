@@ -84,7 +84,7 @@ export default function ReportPage() {
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">{name}</h1>
         <p className="mt-1 text-[13px] text-ink-2">
           {formatDate(a.date)} · age {formatAge(ageMonths)}
-          {view === 'clinical' && <> · {client.sex === 'M' ? 'Male' : 'Female'} · DOB {formatDate(client.dob)} · {client.code}</>}
+          {view === 'clinical' && <> · {client.sex === 'M' ? 'Male' : client.sex === 'F' ? 'Female' : 'Sex unrecorded'} · DOB {formatDate(client.dob) || 'unrecorded'} · {client.code}</>}
         </p>
       </div>
       <div className="text-right">
