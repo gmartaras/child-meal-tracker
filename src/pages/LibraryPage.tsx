@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { FoodEditor, type EditorTarget } from '../components/FoodEditor'
 import { RecipeEditor } from '../components/RecipeEditor'
 import { Button, Field, Icon, IconButton, Input, Modal, confirmDialog, cx } from '../components/ui'
@@ -7,6 +7,7 @@ import { rawValue } from '../domain/calc'
 import { allBranded, allCofid, cofidCount, cofidVersion, getFood, groupName, originalFood, overrideDocId, searchFoods } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
 import { GROUP_ORDER, NUTRIENTS, fmt } from '../domain/nutrients'
+import { explorerEntry } from '../domain/nutrientExplorer'
 import { normaliseRecipe } from '../domain/recipe'
 import type { CustomFood, Food, Measure } from '../domain/types'
 import { useStore } from '../store/store'
@@ -47,6 +48,7 @@ function AddMeasureInline({ unit, onAdd }: { unit: string; onAdd: (m: Measure) =
 }
 
 function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: CustomFood; onEdit: (t: EditorTarget | { type: 'recipe'; recipe: CustomFood }) => void; onClose: () => void }) {
+  const nav = useNavigate()
   const settings = useStore((s) => s.settings)
   const update = useStore((s) => s.updateSettings)
   const deleteFood = useStore((s) => s.deleteFood)
@@ -81,6 +83,12 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         ) : (
           <Button size="sm" variant="primary" icon="edit" onClick={() => onEdit(isCofid ? { type: 'original', foodId: food.id } : { type: 'edit', food: custom! })}>Edit</Button>
         ))}
+        <Button size="sm" icon="chart" onClick={() => {
+          const { nutrientWorkspace: w, setNutrientWorkspace } = useStore.getState()
+          const d = w.drafts.foods
+          setNutrientWorkspace({ ...w, mode: 'foods', drafts: { ...w.drafts, foods: { ...d, meals: [{ ...d.meals[0], items: [...d.meals[0].items, explorerEntry(food)] }] } } })
+          nav('/explorer')
+        }}>Add to Explorer</Button>
         <Button size="sm" icon="copy" onClick={() => onEdit({ type: 'version', sourceId: food.id })}>Make a version</Button>
         {food.edited && <Button size="sm" onClick={() => confirmDialog(`Put “${orig?.name}” back to the original CoFID values?`) && deleteFood(overrideDocId(food.id))}>Revert to original</Button>}
         <Button size="sm" variant="ghost" onClick={() => update({ favourites: isFav ? settings.favourites.filter((x) => x !== food.id) : [...settings.favourites, food.id] })}><Icon name="star" size={14} filled={isFav} className={isFav ? 'text-warning' : ''} /> {isFav ? 'Favourite' : 'Add to favourites'}</Button>

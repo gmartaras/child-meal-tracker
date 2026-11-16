@@ -58,11 +58,11 @@ function IngredientRow({ ing, onChange, onRemove }: { ing: Ingredient; onChange:
 const HEADLINE = ['energy', 'protein', 'fat', 'carb', 'fibre', 'iron', 'calcium', 'salt']
 
 /** Build a dish from library foods; nutrients per 100 g and per portion are calculated from the ingredients. */
-export function RecipeEditor({ recipe, onClose, onSaved }: { recipe?: CustomFood; onClose: () => void; onSaved?: (f: CustomFood) => void }) {
+export function RecipeEditor({ recipe, initial, onClose, onSaved }: { recipe?: CustomFood; initial?: Pick<CustomFood, 'name' | 'recipe'>; onClose: () => void; onSaved?: (f: CustomFood) => void }) {
   const saveFood = useStore((s) => s.saveFood)
   const panel = useStore((s) => s.settings.panel)
-  const [name, setName] = useState(recipe?.name ?? '')
-  const stored = normaliseRecipe(recipe?.recipe)
+  const [name, setName] = useState(recipe?.name ?? initial?.name ?? '')
+  const stored = normaliseRecipe(recipe?.recipe ?? initial?.recipe)
   const [ingredients, setIngredients] = useState<Ingredient[]>(stored?.ingredients ?? [])
   const [cooked, setCooked] = useState(stored?.cookedWeight ? String(stored.cookedWeight) : '')
   const [portions, setPortions] = useState(String(stored?.portions ?? 4))
@@ -97,7 +97,7 @@ export function RecipeEditor({ recipe, onClose, onSaved }: { recipe?: CustomFood
       unit: 'g',
       values: result.values,
       partial: result.partial.filter((id) => result.values[id] != null),
-      measures: [{ label: 'portion', amount: Math.round(result.portionWeight) }],
+      measures: [{ label: 'portion', amount: Math.round(result.portionWeight * 10000) / 10000 }],
       recipe: { ingredients: ingredients.filter((i) => i.amount > 0), cookedWeight, portions: nPortions },
       notes: notes.trim() || undefined,
     })

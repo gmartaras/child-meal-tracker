@@ -46,6 +46,7 @@ export function CommandPalette({ onNewClient }: { onNewClient: () => void }) {
       { id: 'new', label: 'New client', icon: 'plus', run: onNewClient },
       { id: 'clients', label: 'All clients', icon: 'users', run: go('/') },
       { id: 'foods', label: 'Food library', icon: 'apple', run: go('/foods') },
+      { id: 'explorer', label: 'Nutrient Explorer', icon: 'chart', run: go('/explorer') },
       { id: 'settings', label: 'Settings', icon: 'settings', run: go('/settings') },
       { id: 'backup', label: 'Back up records', icon: 'download', run: go('/settings#backup') },
     ]

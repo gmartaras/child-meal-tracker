@@ -6,6 +6,7 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 
 // ---------- icons (24px grid, stroke) ----------
 const PATHS: Record<string, string> = {
+  chart: 'M4 3v17h17M8 15v-4M13 15V6M18 15V9',
   plus: 'M12 5v14M5 12h14',
   search: 'M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16zM21 21l-4.3-4.3',
   x: 'M18 6 6 18M6 6l12 12',

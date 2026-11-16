@@ -125,6 +125,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="px-2 pb-2">
         <NavLink to="/" end className={navItem}><Icon name="users" /> All clients</NavLink>
         <NavLink to="/foods" className={navItem}><Icon name="apple" /> Food library</NavLink>
+        <NavLink to="/explorer" className={navItem}><Icon name="chart" /> Nutrient Explorer</NavLink>
       </div>
       <ClientList onNavigate={() => setDrawer(false)} />
       <div className="border-t border-line p-2">

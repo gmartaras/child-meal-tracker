@@ -38,13 +38,13 @@ export function computeRecipe(r: Pick<RecipeDef, 'ingredients' | 'cookedWeight' 
     // weight: grams as entered; ml via density; supplement doses add no weight
     rawWeight += food.unit === 'g' ? ing.amount : food.unit === 'ml' ? ing.amount * (food.density ?? 1) : 0
     for (const id of RECIPE_IDS) {
-      const { v } = rawValue(food, id)
+      const { v, lowEst } = rawValue(food, id)
       if (v == null) {
-        if (food.kind !== 'supplement') partial.add(id)
+        partial.add(id)
         continue
       }
       totals[id] = (totals[id] ?? 0) + (v * ing.amount) / food.per
-      if (food.partial?.includes(id)) partial.add(id)
+      if (lowEst || food.partial?.includes(id)) partial.add(id)
     }
   }
   const finalWeight = r.cookedWeight && r.cookedWeight > 0 ? r.cookedWeight : rawWeight
@@ -52,7 +52,7 @@ export function computeRecipe(r: Pick<RecipeDef, 'ingredients' | 'cookedWeight' 
   if (finalWeight > 0) for (const [id, v] of Object.entries(totals)) values[id] = Math.round(((v * 100) / finalWeight) * 10000) / 10000
   return {
     values,
-    partial: [...partial].filter((id) => id in values || true),
+    partial: [...partial],
     rawWeight,
     finalWeight,
     portionWeight: finalWeight / Math.max(1, r.portions || 1),

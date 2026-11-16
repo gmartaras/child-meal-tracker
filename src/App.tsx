@@ -6,6 +6,7 @@ import { loadCofid } from './domain/foods'
 import AssessmentPage from './pages/AssessmentPage'
 import ClientPage from './pages/ClientPage'
 import FamilyPage from './pages/FamilyPage'
+import NutrientExplorerPage from './pages/NutrientExplorerPage'
 import LibraryPage from './pages/LibraryPage'
 import HomePage from './pages/HomePage'
 import PrintDocPage from './pages/PrintDocPage'
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="/c/:id/report/:aid/:kind" element={<ReportPage />} />
           <Route path="/c/:id/print/:doc" element={<PrintDocPage />} />
           <Route path="/foods" element={<LibraryPage />} />
+          <Route path="/explorer" element={<NutrientExplorerPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

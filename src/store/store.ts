@@ -1,3 +1,4 @@
+import { newWorkspace, type NutrientWorkspace } from '../domain/nutrientExplorer'
 import { validateBackup } from '../domain/backupValidation'
 import { create } from 'zustand'
 import { uid } from '../domain/age'
@@ -51,6 +52,9 @@ export interface Backup {
 }
 
 interface State {
+  /** Research scratchpad: memory only, excluded from records and backups. */
+  nutrientWorkspace: NutrientWorkspace
+  setNutrientWorkspace(workspace: NutrientWorkspace): void
   phase: 'loading' | 'signin' | 'ready'
   mode: 'local' | 'cloud'
   user: AuthUser | null
@@ -162,6 +166,8 @@ export const useStore = create<State>((set, get) => {
   }
 
   return {
+    nutrientWorkspace: newWorkspace(),
+    setNutrientWorkspace: (nutrientWorkspace) => set({ nutrientWorkspace }),
     phase: 'loading',
     mode: 'local',
     user: null,
@@ -192,13 +198,13 @@ export const useStore = create<State>((set, get) => {
       set({ mode: backend.mode })
       backend.onAuth((user) => {
         if (user) {
-          set({ user, phase: 'loading' })
+          set({ user, phase: 'loading', ...(get().user?.uid !== user.uid ? { nutrientWorkspace: newWorkspace() } : {}) })
           startWatching()
           void get().logAudit('sign-in')
         } else {
           unsubs.forEach((u) => u())
           unsubs = []
-          set({ user: null, phase: 'signin', clients: [], sessions: [], assessments: [], foods: [], audit: [], settings: DEFAULT_SETTINGS })
+          set({ nutrientWorkspace: newWorkspace(), user: null, phase: 'signin', clients: [], sessions: [], assessments: [], foods: [], audit: [], settings: DEFAULT_SETTINGS })
         }
       })
     },
