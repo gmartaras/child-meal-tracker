@@ -38,6 +38,7 @@ const PATHS: Record<string, string> = {
   minus: 'M5 12h14',
   arrowUp: 'M12 19V5M5 12l7-7 7 7',
   layout: 'M4 4h16v16H4zM4 9h16M10 9v11',
+  sidebar: 'M4 4h16v16H4zM9 4v16',
   layers: 'm12 3 9 5-9 5-9-5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5',
   lock: 'M6 10h12v11H6zM8 10V7a4 4 0 0 1 8 0v3M12 14v3',
   arrowRight: 'M5 12h14M12 5l7 7-7 7',

@@ -182,7 +182,10 @@ export default function NutrientExplorerPage() {
         {MODES.map(m => <button key={m.id} type="button" title={m.hint} aria-pressed={mode === m.id} onClick={() => chooseMode(m.id)} className={cx('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors', mode === m.id ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink')}><Icon name={m.icon} size={14} />{m.label}</button>)}
       </div>
       <span className="hidden text-xs text-muted md:inline">{MODES.find(m => m.id === mode)?.hint}</span>
-      <Button className="ml-auto" size="sm" icon="download" disabled={!totals.entries.length} onClick={exportCsv}>Export analysis</Button>
+      <div className="ml-auto flex items-center gap-1.5">
+        <Button className="hidden lg:inline-flex" size="sm" variant="ghost" icon="sidebar" title="Show or hide the sidebar (Ctrl or ⌘ + \)" onClick={() => window.dispatchEvent(new Event('mealtrace:sidebar'))}>Full width</Button>
+        <Button size="sm" icon="download" disabled={!totals.entries.length} onClick={exportCsv}>Export analysis</Button>
+      </div>
     </header>
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(300px,350px)_minmax(0,1fr)]">

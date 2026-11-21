@@ -6,6 +6,8 @@ import { ClientForm } from './ClientForm'
 import { CommandPalette } from './CommandPalette'
 import { Banner, Icon, IconButton, cx } from './ui'
 
+const SIDEBAR_KEY = 'mealtrace-ui:sidebar'
+
 function ClientList({ onNavigate }: { onNavigate: () => void }) {
   const clients = useStore((s) => s.clients)
   const id = useLocation().pathname.match(/^\/c\/([^/]+)/)?.[1]
@@ -105,6 +107,30 @@ export function Layout({ children }: { children: ReactNode }) {
     }
   }, [mode, autoLockMin, signOut, logAudit])
   useEffect(() => setDrawer(false), [loc.pathname])
+  // desktop sidebar can collapse to an icon rail, e.g. to give the Nutrient Explorer the full width.
+  // Remembered in this browser only; nothing to do with records.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(SIDEBAR_KEY) === 'collapsed' } catch { return false }
+  })
+  const toggleSidebar = () => setCollapsed((c) => {
+    try { localStorage.setItem(SIDEBAR_KEY, c ? 'open' : 'collapsed') } catch { /* private mode: not remembered */ }
+    return !c
+  })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault()
+        toggleSidebar()
+      }
+    }
+    const onToggle = () => toggleSidebar()
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mealtrace:sidebar', onToggle)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mealtrace:sidebar', onToggle)
+    }
+  }, [])
 
   if (isReport) return <>{children}</>
 
@@ -121,6 +147,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </span>
         </NavLink>
         <IconButton icon="x" label="Close menu" className="ml-auto lg:hidden" onClick={() => setDrawer(false)} />
+        <IconButton icon="sidebar" label="Collapse sidebar" title="Collapse sidebar (Ctrl or ⌘ + \)" className="ml-auto hidden lg:inline-flex" onClick={toggleSidebar} />
       </div>
       <div className="px-2 pb-2">
         <NavLink to="/" end className={navItem}><Icon name="users" /> All clients</NavLink>
@@ -142,9 +169,26 @@ export function Layout({ children }: { children: ReactNode }) {
     </div>
   )
 
+  const railItem = ({ isActive }: { isActive: boolean }) => cx('flex h-9 w-9 items-center justify-center rounded-lg', isActive ? 'bg-surface-2 text-ink' : 'text-ink-2 hover:bg-surface-2/60 hover:text-ink')
+  const rail = (
+    <nav className="flex h-full flex-col items-center gap-1 bg-bg py-3" aria-label="Main">
+      <button type="button" onClick={toggleSidebar} aria-label="Expand sidebar" title="Expand sidebar (Ctrl or ⌘ + \)" className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-surface-2 hover:text-ink"><Icon name="sidebar" /></button>
+      <NavLink to="/" end className={railItem} aria-label="All clients" title="All clients"><Icon name="users" /></NavLink>
+      <NavLink to="/foods" className={railItem} aria-label="Food library" title="Food library"><Icon name="apple" /></NavLink>
+      <NavLink to="/explorer" className={railItem} aria-label="Nutrient Explorer" title="Nutrient Explorer"><Icon name="chart" /></NavLink>
+      <button type="button" onClick={() => window.dispatchEvent(new Event('mealtrace:palette'))} aria-label="Search" title="Search (⌘K)" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 hover:bg-surface-2/60 hover:text-ink"><Icon name="search" /></button>
+      <div className="mt-auto flex flex-col items-center gap-1">
+        <NavLink to="/settings" className={railItem} aria-label="Settings" title="Settings"><Icon name="settings" /></NavLink>
+        <NavLink to="/privacy" className={railItem} aria-label="Privacy & security" title="Privacy & security"><Icon name="lock" /></NavLink>
+        <span className="flex h-9 w-9 items-center justify-center" title={mode === 'cloud' ? (synced ? `Saved to cloud · ${user?.email}` : 'Not confirmed in cloud · keep this tab open') : 'This browser only'}><Icon name={mode === 'cloud' ? 'cloud' : 'cloudOff'} size={15} className={mode === 'cloud' && synced ? 'text-good-ink' : 'text-muted'} /></span>
+        {mode === 'cloud' && <button type="button" onClick={() => signOut()} aria-label="Sign out" title="Sign out" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2/60 hover:text-ink"><Icon name="logout" size={15} /></button>}
+      </div>
+    </nav>
+  )
+
   return (
     <div className="flex h-full">
-      <aside className="hidden w-[272px] shrink-0 border-r border-line lg:block">{sidebar}</aside>
+      <aside className={cx('hidden shrink-0 border-r border-line lg:block', collapsed ? 'w-14' : 'w-[272px]')}>{collapsed ? rail : sidebar}</aside>
       {drawer && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
