@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { FoodEditor, type EditorTarget } from '../components/FoodEditor'
 import { RecipeEditor } from '../components/RecipeEditor'
 import { Button, Field, Icon, IconButton, Input, Modal, confirmDialog, cx } from '../components/ui'
-import { rawValue } from '../domain/calc'
+import { amountLabel, rawValue } from '../domain/calc'
 import { allBranded, allCofid, cofidCount, cofidVersion, getFood, groupName, originalFood, overrideDocId, searchFoods } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
 import { GROUP_ORDER, NUTRIENTS, fmt } from '../domain/nutrients'
@@ -130,9 +130,9 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         {recipe && <RecipeSummary food={food} portions={recipe.portions} portionWeight={(custom?.measures ?? []).find((m) => m.label === 'portion')?.amount} onOpen={() => nav(`/explorer?recipe=${encodeURIComponent(food.id)}`)} />}
         {recipe && (
           <div className="mb-4">
-            <div className="mb-1 text-[12px] font-medium text-muted">Ingredients · makes {recipe.portions} portion{recipe.portions === 1 ? '' : 's'}</div>
+            <div className="mb-1 flex justify-between gap-3 text-[12px] font-medium text-muted"><span>Ingredients · makes {recipe.portions} portion{recipe.portions === 1 ? '' : 's'}</span>{recipe.portions > 1 && <span>whole recipe · per portion</span>}</div>
             <ul className="text-[13px]">
-              {recipe.ingredients.map((i) => <li key={i.id} className="flex justify-between gap-3 py-0.5"><span className="truncate">{i.name}</span><span className="tnum shrink-0 text-ink-2">{fmt(i.amount, i.amount < 10 ? 1 : 0)} {i.unit}</span></li>)}
+              {recipe.ingredients.map((i) => <li key={i.id} className="flex justify-between gap-3 py-0.5"><span className="truncate">{i.name}</span><span className="tnum shrink-0 text-ink-2">{fmt(i.amount, i.amount < 10 ? 1 : 0)} {i.unit}{recipe.portions > 1 && <> · <span className="font-medium text-ink" data-testid="ingredient-per-portion">{amountLabel(i.amount / recipe.portions, i.unit)}</span></>}</span></li>)}
             </ul>
           </div>
         )}

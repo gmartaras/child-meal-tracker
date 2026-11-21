@@ -1,4 +1,4 @@
-import type { AssessmentResult } from './calc'
+import { amountLabel, type AssessmentResult } from './calc'
 import { statusOf, type Target } from './drv'
 import { NUTRIENT_BY_ID, fmtNutrient } from './nutrients'
 
@@ -22,7 +22,7 @@ function topSources(r: AssessmentResult, id: string, n = 3): string {
   const total = r.avg[id]?.v ?? 0
   const list = (r.sources[id] ?? []).slice(0, n)
   if (!list.length || !(total > 0)) return ''
-  return list.map((s) => `${s.name} (${Math.round((s.value / total) * 100)}%)`).join(', ')
+  return list.map((s) => `${s.name} (${amountLabel(s.amount, s.unit) ? `${amountLabel(s.amount, s.unit)} a day, ` : ''}${Math.round((s.value / total) * 100)}%)`).join(', ')
 }
 
 export interface InsightContext {

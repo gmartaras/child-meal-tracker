@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Analysis } from '../domain/analysis'
-import type { AssessmentResult, Tot } from '../domain/calc'
+import { amountLabel, type AssessmentResult, type Tot } from '../domain/calc'
 import { statusLabel, statusOf, type Status, type Target } from '../domain/drv'
 import type { Insight } from '../domain/insights'
 import { GROUP_ORDER, NUTRIENTS, NUTRIENT_BY_ID, fmt, fmtNutrient } from '../domain/nutrients'
@@ -136,8 +136,10 @@ export function MacroBar({ pct }: { pct: NonNullable<AssessmentResult['energyPct
   )
 }
 
-export function SourcesList({ result, nutrient, limit = 8 }: { result: AssessmentResult; nutrient: string; limit?: number }) {
+/** Foods ranked by how much of a nutrient they provide, each with the amount eaten that provides it. */
+export function SourcesList({ result, nutrient, limit = 8, perDay = true }: { result: AssessmentResult; nutrient: string; limit?: number; perDay?: boolean }) {
   const n = NUTRIENT_BY_ID[nutrient]
+  const perDayLabel = perDay ? ' a day' : ''
   const list = result.sources[nutrient] ?? []
   const total = result.avg[nutrient]?.v ?? 0
   const missing = result.avg[nutrient]?.missing ?? []
@@ -147,9 +149,9 @@ export function SourcesList({ result, nutrient, limit = 8 }: { result: Assessmen
     <div>
       <ul className="space-y-1.5">
         {list.slice(0, limit).map((s) => (
-          <li key={s.name} title={`${s.name}: ${fmtNutrient(nutrient, s.value)} ${n.unit}/day (${Math.round((s.value / total) * 100)}%)`}>
+          <li key={s.name} title={`${s.name}: ${amountLabel(s.amount, s.unit) ? `${amountLabel(s.amount, s.unit)} a day provides ` : ''}${fmtNutrient(nutrient, s.value)} ${n.unit}/day (${Math.round((s.value / total) * 100)}%)`}>
             <div className="flex items-baseline justify-between gap-3 text-[13px]">
-              <span className="truncate">{s.name}</span>
+              <span className="min-w-0 truncate">{s.name}{amountLabel(s.amount, s.unit) && <span className="tnum ml-1.5 text-[12px] text-muted">{amountLabel(s.amount, s.unit)}{perDayLabel}</span>}</span>
               <span className="tnum shrink-0 text-ink-2">
                 {fmtNutrient(nutrient, s.value)} {n.unit} · {Math.round((s.value / total) * 100)}%
               </span>

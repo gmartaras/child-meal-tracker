@@ -89,6 +89,8 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
   await page.getByLabel('Search the food library').fill('Synthetic porridge')
   await page.getByRole('button', { name: /^Synthetic porridge/ }).first().click()
   await expect(page.getByText('Per portion', { exact: true })).toBeVisible()
+  // each ingredient shows its amount per portion as well as for the whole recipe
+  await expect(page.getByTestId('ingredient-per-portion')).toHaveText(['40 g', '150 g'])
   await page.getByRole('button', { name: 'See which ingredients provide each nutrient' }).click()
 
   // explorer: recipe tab, ingredients listed separately, per portion
@@ -100,6 +102,9 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
   await expect(iron.getByRole('listitem')).toHaveCount(2)
   await expect(iron).toContainText('Porridge oats, unfortified')
   await expect(iron).toContainText('%')
+  // how much of each ingredient is in one portion, next to what it provides
+  await expect(iron.getByRole('listitem').filter({ hasText: 'Porridge oats' }).getByTestId('explorer-contribution-amount')).toHaveText('40 g per portion')
+  await expect(page.getByText('40 g per portion', { exact: false }).first()).toBeVisible()
 
   // switching measure keeps the amount
   const milkQty = page.getByLabel('Quantity of Milk, whole, pasteurised, average', { exact: true })

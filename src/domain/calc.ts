@@ -17,6 +17,16 @@ export interface Contribution {
   name: string
   value: number
   kind: Food['kind']
+  /** average amount of this food eaten per day, in `unit`; absent in histories finalised before it was recorded */
+  amount?: number
+  unit?: string
+}
+
+/** “40 g”, “150 ml”, “1 dose”: an amount of a food, rounded for reading. */
+export function amountLabel(amount: number | undefined, unit: string | undefined): string {
+  if (amount == null || !(amount > 0) || !unit) return ''
+  const dp = amount < 1 ? 2 : amount < 10 ? 1 : 0
+  return `${amount.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: dp })} ${unit}`
 }
 
 export interface AssessmentResult {
@@ -140,8 +150,11 @@ function addItem(t: Totals, item: Item, sources?: Record<string, Map<string, Con
     if (sources && x > 0) {
       const m = sources[id]
       const c = m.get(item.name)
-      if (c) c.value += x * weight
-      else m.set(item.name, { name: item.name, value: x * weight, kind: food.kind })
+      if (c) {
+        c.value += x * weight
+        if (c.unit === item.unit) c.amount = (c.amount ?? 0) + amount * weight
+        else c.amount = undefined // same name logged in different units: no single amount to show
+      } else m.set(item.name, { name: item.name, value: x * weight, kind: food.kind, amount: amount * weight, unit: item.unit })
     }
   }
 }

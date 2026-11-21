@@ -5,7 +5,7 @@ import { MacroBar, StatusChip } from '../components/analysis'
 import { Button, Field, Icon, Input, Segmented, Textarea } from '../components/ui'
 import { formatAge, formatDate } from '../domain/age'
 import { TYPE_LABEL, analyse, previousAssessment } from '../domain/analysis'
-import type { Tot } from '../domain/calc'
+import { amountLabel, type Tot } from '../domain/calc'
 import { statusOf, type Status, type Target } from '../domain/drv'
 import { cofidVersion } from '../domain/foods'
 import { NUTRIENTS, fmt, fmtNutrient } from '../domain/nutrients'
@@ -149,7 +149,7 @@ export default function ReportPage() {
               const src = (result.sources[n.id] ?? []).slice(0, 3)
               return (
                 <li key={n.id}>
-                  <strong className="font-semibold">{n.short ?? n.label}:</strong> {src.length ? src.map((s) => s.name.split(',')[0]).filter((v, i, arr) => arr.indexOf(v) === i).join(', ').toLowerCase() : 'no significant sources recorded'}
+                  <strong className="font-semibold">{n.short ?? n.label}:</strong> {src.length ? src.filter((s, i, arr) => arr.findIndex((x) => x.name.split(',')[0] === s.name.split(',')[0]) === i).map((s) => `${s.name.split(',')[0].toLowerCase()}${amountLabel(s.amount, s.unit) ? ` (${amountLabel(s.amount, s.unit)} a day)` : ''}`).join(', ') : 'no significant sources recorded'}
                 </li>
               )
             })}

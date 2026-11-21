@@ -9,7 +9,8 @@ import { ageInMonths, formatAge, formatDate, todayISO, uid } from '../domain/age
 import { TYPE_LABEL, analyse, type Analysis } from '../domain/analysis'
 import { statusOf } from '../domain/drv'
 import { gapsOf, limitsOf, snapshotOf, type Snapshot } from '../domain/explore'
-import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
+import { NUTRIENT_BY_ID, fmt, fmtNutrient } from '../domain/nutrients'
+import { amountLabel } from '../domain/calc'
 import { DEFAULT_CHECKLIST, FOOD_GROUPS, SESSION_KINDS, type Assessment, type Client, type Session, type SessionSections } from '../domain/types'
 import { exportClientExcel, exportClientJson } from '../lib/export'
 import { useStore } from '../store/store'
@@ -202,7 +203,7 @@ function NutritionSnapshot({ client, snaps, onExplore }: { client: Client; snaps
             <div>
               <h3 className="mb-1.5 text-[12px] font-medium text-ink-2">Main sources of {gaps[0].label} now</h3>
               <ul className="space-y-0.5 text-[12.5px]">
-                {analysis.result.sources[gaps[0].id].slice(0, 4).map((s) => <li key={s.name} className="flex justify-between gap-2"><span className="truncate">{s.name}</span><span className="tnum shrink-0 text-ink-2">{fmt((s.value / (analysis.result.avg[gaps[0].id].v || 1)) * 100, 0)}%</span></li>)}
+                {analysis.result.sources[gaps[0].id].slice(0, 4).map((s) => <li key={s.name} className="flex justify-between gap-2" title={amountLabel(s.amount, s.unit) ? `${amountLabel(s.amount, s.unit)} a day provides ${fmtNutrient(gaps[0].id, s.value)} ${gaps[0].unit}` : undefined}><span className="min-w-0 truncate">{s.name}{amountLabel(s.amount, s.unit) && <span className="tnum ml-1.5 text-muted">{amountLabel(s.amount, s.unit)} a day</span>}</span><span className="tnum shrink-0 text-ink-2">{fmtNutrient(gaps[0].id, s.value)} {gaps[0].unit} · {fmt((s.value / (analysis.result.avg[gaps[0].id].v || 1)) * 100, 0)}%</span></li>)}
               </ul>
             </div>
           )}

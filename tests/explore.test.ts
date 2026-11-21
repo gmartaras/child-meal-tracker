@@ -96,3 +96,17 @@ describe('privacy reset', () => {
     expect(r.assessments).toHaveLength(0)
   })
 })
+
+describe('amounts behind each nutrient source', () => {
+  it('records the average daily amount of each food that provides a nutrient', async () => {
+    const { computeAssessment, amountLabel } = await import('../src/domain/calc')
+    const oats = (g: number) => quickItem(getFood('c:11-1145')!, g)
+    const r = computeAssessment({ days: [day([oats(40), milk()], true), day([oats(20)], true)] })
+    const src = r.sources.iron.find((s) => s.name === getFood('c:11-1145')!.name)!
+    expect(src.amount).toBeCloseTo(30) // (40 + 20) / 2 days
+    expect(src.unit).toBe('g')
+    expect(amountLabel(src.amount, src.unit)).toBe('30 g')
+    expect(amountLabel(0.25, 'g')).toBe('0.25 g')
+    expect(amountLabel(undefined, 'g')).toBe('')
+  })
+})
