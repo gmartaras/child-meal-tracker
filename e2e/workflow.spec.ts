@@ -359,3 +359,24 @@ test('removes notes and names from all clients, keeping analysis data', async ({
   expect(clients[0].folderUrl).toBeUndefined()
   expect(sessions[0]).toMatchObject({ note: '', sections: {}, weightKg: 14 })
 })
+
+test('in a food diary, switching between household measures keeps the count the family reported', async ({ page }) => {
+  await page.goto('/?demo=1')
+  await page.evaluate(() => {
+    localStorage.setItem('mealtrace:clients', JSON.stringify([{ id: 'm', firstName: 'TEST-M', code: 'TEST-M', dob: '2022-01-01', sex: 'F', feeding: 'na', context: '', createdAt: 1, updatedAt: 1 }]))
+  })
+  await page.goto('/?demo=1#/c/m')
+  await page.reload()
+  await page.getByRole('button', { name: 'New food history', exact: true }).first().click()
+  await page.getByRole('combobox', { name: 'Add to breakfast…' }).fill('bread white average')
+  await page.getByRole('option', { name: /^Bread, white, average/ }).first().click()
+  const qty = page.getByLabel('Quantity of Bread, white, average')
+  await expect(qty).toHaveValue('1')
+  const measure = page.getByRole('combobox', { name: 'Measure' }).first()
+  await measure.selectOption({ label: 'thick slice (44 g)' })
+  await expect(qty).toHaveValue('1')
+  await expect(page.getByText(/44 g · /).first()).toBeVisible()
+  // to grams, the weight is kept
+  await measure.selectOption('g')
+  await expect(qty).toHaveValue('44')
+})

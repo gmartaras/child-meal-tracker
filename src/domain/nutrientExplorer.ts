@@ -1,5 +1,6 @@
 import { rawValue } from './calc'
 import { NUTRIENTS } from './nutrients'
+import { ingredientWeight } from './recipe'
 import type { Food, Ingredient, Measure, RecipeDef } from './types'
 
 export const COFID_SOURCE = 'https://www.gov.uk/government/publications/composition-of-foods-integrated-dataset-cofid'
@@ -26,14 +27,34 @@ export function explorerEntry(food: Food): ExplorerEntry {
 }
 
 /**
- * Change the measure of an entry while keeping the amount eaten: 100 g switched to “portion (153 g)”
- * becomes 0.654 portions, not 100 portions. The amount in grams (or ml / doses) never changes.
+ * A quantity for display and editing, precise enough that quantity × measure stays within 0.05% of the
+ * amount: three decimals from 1 upwards, four significant figures below 1. Never rounds 1234 to 1230.
  */
-export function withMeasure<T extends Pick<Ingredient, 'qty' | 'amount' | 'measure' | 'measureAmount'>>(entry: T, m: Measure): T {
+export function roundQty(x: number): number {
+  if (!(x > 0) || !Number.isFinite(x)) return 0
+  return x >= 1 ? Math.round(x * 1000) / 1000 : Number(x.toPrecision(4))
+}
+
+/** A unit of weight or volume (g, ml, fl oz, oz, or the food's own unit), as opposed to a household measure. */
+export function isUnitMeasure(label: string, unit?: string): boolean {
+  return label === unit || /^(g|ml|oz|fl oz)\b/i.test(label.trim())
+}
+
+/**
+ * Change the measure of an entry.
+ * - To or from a unit of weight or volume, the amount eaten is kept: 100 g switched to “portion (153 g)”
+ *   becomes 0.654 portions, and 1 medium slice switched to g becomes 36 g.
+ * - Between household measures, the count is kept, as the family reported it: 1 medium slice switched to
+ *   thick slice is 1 thick slice.
+ */
+export function withMeasure<T extends Pick<Ingredient, 'qty' | 'amount' | 'measure' | 'measureAmount'> & { unit?: string }>(entry: T, m: Measure): T {
   if (!(m.amount > 0)) return entry
+  if (!isUnitMeasure(entry.measure, entry.unit) && !isUnitMeasure(m.label, entry.unit)) {
+    const qty = entry.qty > 0 ? entry.qty : 0
+    return { ...entry, measure: m.label, measureAmount: m.amount, qty, amount: qty * m.amount }
+  }
   const amount = entry.amount > 0 ? entry.amount : 0
-  const qty = amount ? Number((amount / m.amount).toPrecision(3)) : 0
-  return { ...entry, measure: m.label, measureAmount: m.amount, qty, amount }
+  return { ...entry, measure: m.label, measureAmount: m.amount, qty: amount ? roundQty(amount / m.amount) : 0, amount }
 }
 
 export interface RecipeLookup {
@@ -64,8 +85,12 @@ export function expandRecipe(recipeName: string, def: RecipeDef, lookup: RecipeL
     }
     const inner = lookup.recipe(f.id)
     if (inner && depth < 3 && ing.unit === 'g') {
-      // grams of the sub-recipe as a share of its finished weight, applied to each of its ingredients
-      const raw = inner.ingredients.reduce((sum, i) => sum + (i.unit === 'g' ? i.amount : 0), 0)
+      // grams of the sub-recipe as a share of its finished weight, applied to each of its ingredients.
+      // The finished weight follows the same rule as the library (computeRecipe): ml count via density.
+      const raw = inner.ingredients.reduce((sum, i) => {
+        const food = i.amount > 0 ? lookup.food(i.foodId) : undefined
+        return sum + (food ? ingredientWeight(food, i.amount) : 0)
+      }, 0)
       const finished = inner.cookedWeight && inner.cookedWeight > 0 ? inner.cookedWeight : raw
       if (finished > 0) {
         const sub = expandRecipe(recipeName, inner, lookup, (scale * ing.amount) / finished, depth + 1)
@@ -75,7 +100,7 @@ export function expandRecipe(recipeName: string, def: RecipeDef, lookup: RecipeL
       }
     }
     const base = explorerEntry(f)
-    entries.push({ ...base, name: f.name, qty: Number((ing.qty * scale).toPrecision(4)), measure: ing.measure, measureAmount: ing.measureAmount, amount: ing.amount * scale, fromRecipe: recipeName })
+    entries.push({ ...base, name: f.name, qty: roundQty(ing.qty * scale), measure: ing.measure, measureAmount: ing.measureAmount, amount: ing.amount * scale, fromRecipe: recipeName })
   }
   return { entries, unknown }
 }

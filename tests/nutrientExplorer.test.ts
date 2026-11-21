@@ -124,10 +124,41 @@ describe('recipes and measures in the explorer', () => {
     const def: RecipeDef = { portions: 1, ingredients: [{ ...porridge.ingredients[0], foodId: 'u:gone', name: 'Gone' }] }
     expect(expandRecipe('X', def, lookup())).toMatchObject({ entries: [], unknown: ['Gone'] })
   })
-  it('keeps the amount when the measure changes', () => {
-    const e = { qty: 100, amount: 100, measure: 'g', measureAmount: 1 }
-    expect(withMeasure(e, { label: 'portion', amount: 150 })).toMatchObject({ measure: 'portion', qty: 0.667, amount: 100 })
+  it('keeps the amount when the measure changes to or from grams or ml', () => {
+    const e = { qty: 100, amount: 100, measure: 'g', measureAmount: 1, unit: 'g' }
+    expect(withMeasure(e, { label: 'portion', amount: 150 })).toMatchObject({ measure: 'portion', qty: 0.6667, amount: 100 })
     expect(withMeasure(e, { label: 'medium banana', amount: 100 })).toMatchObject({ qty: 1, amount: 100 })
     expect(withMeasure({ ...e, qty: 0, amount: 0 }, { label: 'portion', amount: 150 })).toMatchObject({ qty: 0, amount: 0 })
+    // a household measure back to grams gives the grams
+    expect(withMeasure({ qty: 1, amount: 36, measure: 'medium slice', measureAmount: 36, unit: 'g' }, { label: 'g', amount: 1 })).toMatchObject({ qty: 36, amount: 36 })
+    // ml on a food stored in grams, and fl oz, are units too
+    expect(withMeasure({ qty: 1, amount: 206, measure: 'cup (200 ml)', measureAmount: 206, unit: 'g' }, { label: 'ml', amount: 1.03 })).toMatchObject({ qty: 200, amount: 206 })
+    expect(withMeasure({ qty: 200, amount: 200, measure: 'ml', measureAmount: 1, unit: 'ml' }, { label: 'fl oz (28 ml)', amount: 28.4 })).toMatchObject({ qty: 7.042, amount: 200 })
+  })
+  it('keeps the count between household measures, as the family reported it', () => {
+    const slice = { qty: 1, amount: 36, measure: 'medium slice', measureAmount: 36, unit: 'g' }
+    expect(withMeasure(slice, { label: 'thick slice', amount: 44 })).toMatchObject({ measure: 'thick slice', qty: 1, amount: 44 })
+    expect(withMeasure({ ...slice, qty: 2, amount: 72 }, { label: 'small slice', amount: 25 })).toMatchObject({ qty: 2, amount: 50 })
+    expect(withMeasure({ qty: 1, amount: 150, measure: 'beaker (150 ml)', measureAmount: 150, unit: 'ml' }, { label: 'cup (200 ml)', amount: 200 })).toMatchObject({ qty: 1, amount: 200 })
+  })
+  it('never rounds the quantity away from the amount', () => {
+    const big = { qty: 1234, amount: 1234, measure: 'g', measureAmount: 1, unit: 'g' }
+    const back = withMeasure(withMeasure(big, { label: 'portion', amount: 153 }), { label: 'g', amount: 1 })
+    expect(back).toMatchObject({ qty: 1234, amount: 1234 })
+    for (const amount of [1, 7.5, 36, 100, 153, 999, 1234, 2500]) {
+      for (const m of [3, 15, 28.4, 44, 150, 153, 210]) {
+        const r = withMeasure({ qty: amount, amount, measure: 'g', measureAmount: 1, unit: 'g' }, { label: 'portion', amount: m })
+        expect(Math.abs(r.qty * m - amount) / amount).toBeLessThan(0.0005)
+      }
+    }
+    expect(withMeasure({ qty: 0.2, amount: 0.2, measure: 'g', measureAmount: 1, unit: 'g' }, { label: 'portion', amount: 150 }).qty).toBe(0.001333)
+  })
+  it('sizes a sub-recipe with liquid ingredients the same way as the library', () => {
+    // porridge: 80 g oats + 300 ml milk (density 1.03), no finished weight → 389 g, as computeRecipe counts it
+    const breakfast: RecipeDef = { portions: 1, ingredients: [{ id: 'p', foodId: 'u:porridge', name: 'Porridge', amount: 194.5, qty: 194.5, measure: 'g', measureAmount: 1, unit: 'g' }] }
+    const out = expandRecipe('Breakfast', breakfast, lookup({ 'u:porridge': porridge }))
+    expect(out.entries.map((e) => e.amount)).toEqual([40, 150]) // half the porridge, not 194.5/80 of it
+    const d: ExplorerDraft = { title: '', portions: 1, meals: [{ id: 'm', name: '', items: out.entries }] }
+    expect(exploreNutrients(d).nutrients.energy.value).toBeCloseTo(160 + 90)
   })
 })

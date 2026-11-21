@@ -105,7 +105,7 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
   const milkQty = page.getByLabel('Quantity of Milk, whole, pasteurised, average', { exact: true })
   const energy = await page.getByTestId('explorer-energy').innerText()
   await page.getByLabel('Measure for Milk, whole, pasteurised, average').selectOption('cup (200 ml)')
-  await expect(milkQty).toHaveValue('1.46')
+  await expect(milkQty).toHaveValue('1.456')
   await expect(page.getByTestId('explorer-energy')).toHaveText(energy)
   expect(errors).toEqual([])
 })

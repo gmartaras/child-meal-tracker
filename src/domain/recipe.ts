@@ -1,6 +1,6 @@
 import { CALC_IDS, rawValue } from './calc'
 import { getFood } from './foods'
-import type { Ingredient, RecipeDef } from './types'
+import type { Food, Ingredient, RecipeDef } from './types'
 
 export interface RecipeResult {
   /** per 100 g of the finished dish */
@@ -16,6 +16,11 @@ export interface RecipeResult {
 
 /** Every stored nutrient id a recipe carries (the calculation ids, with sodium kept and salt derived). */
 const RECIPE_IDS = CALC_IDS.filter((id) => id !== 'salt')
+
+/** Weight an ingredient adds to a dish: grams as entered; ml via density (water if unknown); doses add none. */
+export function ingredientWeight(food: Pick<Food, 'unit' | 'density'>, amount: number): number {
+  return food.unit === 'g' ? amount : food.unit === 'ml' ? amount * (food.density ?? 1) : 0
+}
 
 /**
  * Nutrients of a dish = sum of its ingredients, expressed per 100 g of the finished dish.
@@ -35,8 +40,7 @@ export function computeRecipe(r: Pick<RecipeDef, 'ingredients' | 'cookedWeight' 
       for (const id of RECIPE_IDS) partial.add(id)
       continue
     }
-    // weight: grams as entered; ml via density; supplement doses add no weight
-    rawWeight += food.unit === 'g' ? ing.amount : food.unit === 'ml' ? ing.amount * (food.density ?? 1) : 0
+    rawWeight += ingredientWeight(food, ing.amount)
     for (const id of RECIPE_IDS) {
       const { v, lowEst } = rawValue(food, id)
       if (v == null) {
