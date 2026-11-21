@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { uid } from '../domain/age'
 import { getFood } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
+import { withMeasure } from '../domain/nutrientExplorer'
 import { NUTRIENTS, fmt } from '../domain/nutrients'
 import { computeRecipe, normaliseRecipe } from '../domain/recipe'
 import type { CustomFood, Food, Ingredient } from '../domain/types'
@@ -43,7 +44,11 @@ function IngredientRow({ ing, onChange, onRemove }: { ing: Ingredient; onChange:
         aria-label="Measure"
         onChange={(e) => {
           const m = options.find((x) => x.label === e.target.value)
-          if (m) onChange({ ...ing, measure: m.label, measureAmount: m.amount, amount: ing.qty * m.amount })
+          if (!m) return
+          // keep the amount: the quantity is converted to the new measure
+          const next = withMeasure(ing, m)
+          setQty(next.qty ? String(next.qty) : '')
+          onChange(next)
         }}
         className="h-8 w-44 py-0 text-[13px]"
       >

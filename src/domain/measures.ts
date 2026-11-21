@@ -186,7 +186,6 @@ export function measuresFor(
     }
     if (food.density) out.push({ label: 'ml', amount: food.density })
   }
-  const halves = out.filter(m => m.amount > 1 && m.label !== food.unit && !/^half|^½/i.test(m.label) && !m.estimate)
-    .map(m => ({...m, label: `½ ${m.label}`, amount: m.amount / 2}))
-  return unique([...out, ...halves])
+  // no generated “½ …” duplicates: type 0.5 instead, and switching measure keeps the amount
+  return unique(out)
 }

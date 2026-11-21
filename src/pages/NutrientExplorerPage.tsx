@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { FoodSearch } from '../components/FoodSearch'
 import { RecipeEditor } from '../components/RecipeEditor'
 import { Button, Card, Field, Icon, IconButton, Input, Select, cx } from '../components/ui'
 import { measuresFor } from '../domain/measures'
 import { GROUP_ORDER, NUTRIENTS, NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
-import { COFID_SOURCE, EXPLORER_METHOD, exploreNutrients, explorerCsv, explorerEntry, newWorkspace, sourceOf, valueStatus, type ExplorerBasis, type ExplorerDraft, type ExplorerEntry, type ExplorerMode, type ExplorerValue } from '../domain/nutrientExplorer'
+import { COFID_SOURCE, EXPLORER_METHOD, expandRecipe, exploreNutrients, explorerCsv, explorerEntry, newWorkspace, withMeasure, type RecipeLookup, sourceOf, valueStatus, type ExplorerBasis, type ExplorerDraft, type ExplorerEntry, type ExplorerMode, type ExplorerValue } from '../domain/nutrientExplorer'
+import { getFood } from '../domain/foods'
+import { normaliseRecipe } from '../domain/recipe'
 import type { Food } from '../domain/types'
 import { useStore } from '../store/store'
 
@@ -24,7 +26,7 @@ function amountText(v: ExplorerValue, id: string) {
   return prefix + fmt(v.value, v.value > 0 && v.value < 10 ** -dp / 2 ? Math.min(8, Math.ceil(-Math.log10(v.value)) + 1) : dp)
 }
 
-function EntryRow({ entry, change, remove }: { entry: ExplorerEntry; change: (i: ExplorerEntry) => void; remove: () => void }) {
+function EntryRow({ entry, change, remove, title }: { entry: ExplorerEntry; change: (i: ExplorerEntry) => void; remove: () => void; title: string }) {
   const measures = useStore(s => s.settings.measures)
   const customFoods = useStore(s => s.foods)
   const options = measuresFor(entry.food, { userMeasures: measures[entry.foodId], customMeasures: customFoods.find(f => 'u:' + f.id === entry.foodId)?.measures }).filter(m => !m.estimate)
@@ -32,17 +34,17 @@ function EntryRow({ entry, change, remove }: { entry: ExplorerEntry; change: (i:
   const source = sourceOf(entry.food)
   return <li className="space-y-2 border-b border-line px-4 py-3 last:border-0" data-testid="explorer-entry">
     <div className="flex items-start gap-2">
-      <div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-snug">{entry.name}</p><p className="mt-0.5 text-[11px] text-muted">{source.label}{entry.food.brand ? ` · ${entry.food.brand}` : ''}</p></div>
+      <div className="min-w-0 flex-1"><p className="text-[13px] font-medium leading-snug">{entry.name}</p><p className="mt-0.5 text-[11px] text-muted">{entry.fromRecipe && entry.fromRecipe !== title && <span className="mr-1 rounded bg-accent-wash px-1 py-px text-accent-ink">from {entry.fromRecipe}</span>}{source.label}{entry.food.brand ? ` · ${entry.food.brand}` : ''}</p></div>
       <IconButton icon="trash" label={`Remove ${entry.name}`} onClick={remove} className="-mr-1 -mt-1 h-7 w-7" />
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
-      <Input type="number" min="0" step="any" value={entry.qty || ''} placeholder="0" aria-label={`Quantity of ${entry.name}`} className="tnum h-8 w-20 px-2" onChange={e => {
+      <Input key={entry.measure} type="number" min="0" step="any" value={entry.qty || ''} placeholder="0" aria-label={`Quantity of ${entry.name}`} className="tnum h-8 w-20 px-2" onChange={e => {
         const qty = e.target.valueAsNumber
         change({ ...entry, qty: Number.isFinite(qty) && qty >= 0 ? qty : 0, amount: Number.isFinite(qty) && qty >= 0 ? qty * entry.measureAmount : 0 })
       }} />
       <Select aria-label={`Measure for ${entry.name}`} className="h-8 min-w-0 flex-1 basis-28 px-2 text-xs" value={entry.measure} onChange={e => {
-        const m = options.find(m => m.label === e.target.value)!
-        change({ ...entry, measure: m.label, measureAmount: m.amount, amount: entry.qty * m.amount })
+        const m = options.find(m => m.label === e.target.value)
+        if (m) change(withMeasure(entry, m))
       }}>{options.map(m => <option key={m.label} value={m.label}>{m.label}{m.label !== entry.unit ? ` (${fmt(m.amount, 1)} ${entry.unit})` : ''}</option>)}</Select>
       <button type="button" aria-label={`Halve ${entry.name}`} onClick={() => change({ ...entry, qty: entry.qty / 2, amount: entry.amount / 2 })} className="h-8 rounded-md border border-line px-2 text-xs hover:bg-surface-2">½</button>
       <button type="button" aria-label={`Double ${entry.name}`} onClick={() => change({ ...entry, qty: entry.qty * 2, amount: entry.amount * 2 })} className="h-8 rounded-md border border-line px-2 text-xs hover:bg-surface-2">2×</button>
@@ -64,6 +66,13 @@ export default function NutrientExplorerPage() {
   const [showRecipe, setShowRecipe] = useState(false)
   const [savedRecipe, setSavedRecipe] = useState<string | null>(null)
   const [breakdown, setBreakdown] = useState<'food' | 'meal'>('food')
+  const [notice, setNotice] = useState('')
+  const [params, setParams] = useSearchParams()
+  const customFoods = useStore(s => s.foods)
+  const lookup = useMemo<RecipeLookup>(() => {
+    const recipes = new Map(customFoods.map(f => ['u:' + f.id, normaliseRecipe(f.recipe)]))
+    return { food: getFood, recipe: id => recipes.get(id) }
+  }, [customFoods])
   const activeMeal = mode === 'day' ? draft.meals.find(m => m.id === mealId) ?? draft.meals[0] : draft.meals[0]
   const totals = useMemo(() => exploreNutrients(draft, basis), [draft, basis])
   const whole = useMemo(() => exploreNutrients(draft), [draft])
@@ -78,8 +87,44 @@ export default function NutrientExplorerPage() {
   useEffect(() => { if (totals.factor == null) setBasis('entered') }, [totals.factor])
   const update = (patch: Partial<ExplorerDraft>) => setWorkspace({ ...workspace, drafts: { ...workspace.drafts, [mode]: { ...draft, ...patch } } })
   const updateItems = (items: ExplorerEntry[]) => update({ meals: draft.meals.map(m => m.id === activeMeal.id ? { ...m, items } : m) })
-  const add = (food: Food) => updateItems([...activeMeal.items, explorerEntry(food)])
-  const chooseMode = (next: ExplorerMode) => { setWorkspace({ ...workspace, mode: next }); setBasis('entered'); setSavedRecipe(null); setBreakdown(next === 'day' ? 'meal' : 'food') }
+  /** A saved recipe is added as its ingredients: the whole recipe when starting a new one, otherwise one portion. */
+  const add = (food: Food) => {
+    const def = lookup.recipe(food.id)
+    if (!def) return updateItems([...activeMeal.items, explorerEntry(food)])
+    const portions = Math.max(1, def.portions || 1)
+    if (mode === 'recipe' && !entered.length) return loadRecipe(food)
+    const { entries, unknown } = expandRecipe(food.name, def, lookup, 1 / portions)
+    updateItems([...activeMeal.items, ...entries])
+    setNotice(`Added one portion of ${food.name} as ${entries.length} ingredient${entries.length === 1 ? '' : 's'}.${unknown.length ? ` Not found in the library: ${unknown.join(', ')}.` : ''}`)
+  }
+  /** Open a saved recipe in the Recipe tab, broken into its ingredients, shown per portion. */
+  function loadRecipe(food: Food) {
+    const def = lookup.recipe(food.id)
+    if (!def) return
+    const current = workspace.drafts.recipe
+    if (current.meals.some(m => m.items.length) && current.title !== food.name && !window.confirm(`Replace “${current.title || 'the current recipe'}” in the Recipe tab with “${food.name}”?`)) return
+    const { entries, unknown } = expandRecipe(food.name, def, lookup)
+    setWorkspace({ ...workspace, mode: 'recipe', drafts: { ...workspace.drafts, recipe: { title: food.name, portions: Math.max(1, def.portions || 1), cookedWeight: def.cookedWeight, meals: [{ id: 'ingredients', name: 'Foods', items: entries }] } } })
+    setBasis('portion')
+    setBreakdown('food')
+    setNotice(`Opened your saved recipe “${food.name}”. Changes here are for exploring and do not alter the saved recipe.${unknown.length ? ` Not found in the library: ${unknown.join(', ')}.` : ''}`)
+  }
+  // links from the food library: ?recipe=<id> opens a recipe, ?food=<id> adds a food
+  useEffect(() => {
+    const recipeId = params.get('recipe')
+    const foodId = params.get('food')
+    if (!recipeId && !foodId) return
+    const food = getFood(recipeId ?? foodId!)
+    setParams({}, { replace: true })
+    if (!food) return
+    if (recipeId && lookup.recipe(food.id)) return loadRecipe(food)
+    const d = workspace.drafts.foods
+    setWorkspace({ ...workspace, mode: 'foods', drafts: { ...workspace.drafts, foods: { ...d, meals: [{ ...d.meals[0], items: [...d.meals[0].items, explorerEntry(food)] }] } } })
+    setBasis('entered')
+    setNotice(`Added ${food.name}. It starts at ${food.per} ${food.unit}; adjust the amount below.`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params])
+  const chooseMode = (next: ExplorerMode) => { setWorkspace({ ...workspace, mode: next }); setBasis('entered'); setNotice(''); setSavedRecipe(null); setBreakdown(next === 'day' ? 'meal' : 'food') }
   const basisLabel = basis === 'portion' ? `Per portion (1 of ${draft.portions})` : basis === '100g' ? 'Per 100 g' : basis === '100ml' ? 'Per 100 ml' : mode === 'recipe' ? 'Whole recipe' : mode === 'day' ? 'Whole day' : 'Entered amounts'
   const selectedNutrient = NUTRIENT_BY_ID[focus]
   const selectedValue = totals.nutrients[focus]
@@ -89,10 +134,11 @@ export default function NutrientExplorerPage() {
     const groups = mode === 'day' && breakdown === 'meal' ? draft.meals.map((m, i) => ({ id: m.id, name: m.name, items: m.items, colour: COLOURS[i % COLOURS.length] })) : entered.map((item, i) => ({ id: item.id, name: item.name, items: [item], colour: COLOURS[i % COLOURS.length] }))
     return groups.map(g => {
       const result = exploreNutrients(singleDraft(g.items)).nutrients[focus]
-      return { ...g, result: { ...result, value: result.value == null || totals.factor == null ? null : result.value * totals.factor } }
+      return { ...g, from: g.items.length === 1 ? g.items[0].fromRecipe : undefined, result: { ...result, value: result.value == null || totals.factor == null ? null : result.value * totals.factor } }
     }).filter(g => g.items.length).sort((a, b) => (b.result.value ?? -1) - (a.result.value ?? -1))
   }, [draft, mode, breakdown, focus, totals.factor])
   const max = Math.max(...rows.map(r => r.result.value ?? 0), 0)
+  const knownTotal = rows.reduce((sum, r) => sum + (r.result.value ?? 0), 0)
   const nutrientRows = NUTRIENTS.filter(n => (group === 'All nutrients' || group === n.group) && n.label.toLowerCase().includes(nutrientSearch.toLowerCase()))
   const exportCsv = () => {
     const url = URL.createObjectURL(new Blob([explorerCsv(draft, basis, basisLabel)], { type: 'text/csv;charset=utf-8' }))
@@ -118,9 +164,10 @@ export default function NutrientExplorerPage() {
             <Input aria-label="Exploration title" value={draft.title} onChange={e => update({ title: e.target.value })} />
             {mode === 'day' && <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Meals in chronological order">{draft.meals.map((m, index) => <button type="button" key={m.id} onClick={() => setMealId(m.id)} aria-pressed={m.id === activeMeal.id} className={cx('rounded-lg border px-2 py-2 text-left', m.id === activeMeal.id ? 'border-accent bg-accent-wash' : 'border-line hover:bg-surface-2')}><span className="block text-[10px] text-muted">{String(index + 1).padStart(2, '0')} · {m.items.length} food{m.items.length === 1 ? '' : 's'}</span><span className="text-xs font-medium">{m.name}</span></button>)}</div>}
             <FoodSearch placeholder={mode === 'recipe' ? 'Search ingredients or saved recipes…' : 'Search foods, brands or recipes…'} onPick={add} />
-            <p className="text-[11px] text-muted">UK CoFID, branded foods and your library. Starts at 100 g / ml, or one dose; adjust the amount below.</p>
+            <p className="text-[11px] text-muted">UK CoFID, branded foods and your library. Foods start at 100 g / ml, or one dose; saved recipes are added as their ingredients. Changing the measure keeps the amount.</p>
+            {notice && <p role="status" className="flex items-start gap-2 rounded-lg bg-accent-wash px-3 py-2 text-xs text-ink"><Icon name="info" size={14} className="mt-0.5 text-accent-ink" /><span className="flex-1">{notice}</span><button type="button" aria-label="Dismiss" className="text-muted hover:text-ink" onClick={() => setNotice('')}><Icon name="x" size={13} /></button></p>}
           </div>
-          {activeMeal.items.length ? <ul>{activeMeal.items.map(entry => <EntryRow key={entry.id} entry={entry} change={next => updateItems(activeMeal.items.map(i => i.id === entry.id ? next : i))} remove={() => updateItems(activeMeal.items.filter(i => i.id !== entry.id))} />)}</ul> : <div className="px-6 py-9 text-center"><Icon name="apple" size={26} className="mx-auto mb-3 text-accent-ink" /><h3 className="text-sm font-medium">{mode === 'day' ? `What’s for ${activeMeal.name.toLowerCase()}?` : mode === 'recipe' ? 'Start with an ingredient' : 'What would you like to explore?'}</h3><p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted">Search above for a food or saved recipe, then adjust its weight or household measure.</p><div className="mt-3 flex justify-center gap-2"><Link to="/foods" className="text-xs text-accent-ink underline underline-offset-4">Browse the food library</Link></div></div>}
+          {activeMeal.items.length ? <ul>{activeMeal.items.map(entry => <EntryRow key={entry.id} entry={entry} title={draft.title} change={next => updateItems(activeMeal.items.map(i => i.id === entry.id ? next : i))} remove={() => updateItems(activeMeal.items.filter(i => i.id !== entry.id))} />)}</ul> : <div className="px-6 py-9 text-center"><Icon name="apple" size={26} className="mx-auto mb-3 text-accent-ink" /><h3 className="text-sm font-medium">{mode === 'day' ? `What’s for ${activeMeal.name.toLowerCase()}?` : mode === 'recipe' ? 'Start with an ingredient' : 'What would you like to explore?'}</h3><p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted">Search above for a food or saved recipe, then adjust its weight or household measure.</p><div className="mt-3 flex justify-center gap-2"><Link to="/foods" className="text-xs text-accent-ink underline underline-offset-4">Browse the food library</Link></div></div>}
           {mode === 'recipe' && <div className="space-y-3 border-t border-line p-4">
             <div className="grid grid-cols-2 gap-3"><Field label="Number of portions"><Input type="number" min="1" step="1" value={draft.portions || ''} onChange={e => update({ portions: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} /></Field><Field label="Finished weight (g)"><Input type="number" min="0.1" step="any" value={draft.cookedWeight ?? ''} placeholder={whole.rawWeight ? String(Math.round(whole.rawWeight)) : 'Optional'} onChange={e => update({ cookedWeight: e.target.valueAsNumber > 0 ? e.target.valueAsNumber : undefined })} /></Field></div>
             {draft.portions < 1 && <p className="text-xs text-warning-ink">Enter at least one portion to analyse or save portions.</p>}
@@ -155,7 +202,7 @@ export default function NutrientExplorerPage() {
           <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">Where the nutrients come from</h2><Select className="w-auto max-w-full text-xs" aria-label="Chart nutrient" value={focus} onChange={e => setFocus(e.target.value)}>{NUTRIENTS.map(n => <option key={n.id} value={n.id}>{n.label} ({n.unit})</option>)}</Select></div>
           <div className="mt-4 flex flex-wrap items-end justify-between gap-3"><div><span className="tnum text-3xl font-semibold tracking-tight">{amountText(selectedValue, focus)}</span><span className="ml-1.5 text-sm text-muted">{selectedNutrient.unit} {selectedNutrient.label.toLowerCase()}</span><p className="mt-1 text-xs text-muted">{basisLabel} · {valueStatus(selectedValue)}</p></div>{mode === 'day' && <div className="flex rounded-lg bg-surface-2 p-1" role="group" aria-label="Contribution grouping">{(['meal', 'food'] as const).map(b => <button type="button" key={b} aria-pressed={breakdown === b} onClick={() => setBreakdown(b)} className={cx('rounded-md px-2.5 py-1 text-xs', breakdown === b && 'bg-surface shadow-sm')}>By {b}</button>)}</div>}</div>
           <div className="mt-5 space-y-3" role="list" aria-label={`${selectedNutrient.label} contributions`}>
-            {rows.map(row => <div key={row.id} role="listitem"><div className="mb-1 flex items-baseline justify-between gap-3 text-xs"><span className="min-w-0 truncate" title={row.name}>{row.name}</span><span className="tnum shrink-0 font-medium">{amountText(row.result, focus)} {selectedNutrient.unit}</span></div><div className="h-2 overflow-hidden rounded-full bg-track" aria-hidden="true"><div className="h-full rounded-full transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${max ? ((row.result.value ?? 0) / max) * 100 : 0}%`, background: row.colour }} /></div>{(row.result.status !== 'complete' || row.result.lowEst) && <p className="mt-0.5 text-[10px] text-muted">{valueStatus(row.result)}</p>}</div>)}
+            {rows.map(row => <div key={row.id} role="listitem"><div className="mb-1 flex items-baseline justify-between gap-3 text-xs"><span className="min-w-0 truncate" title={row.name}>{row.name}{row.from && row.from !== draft.title && <span className="ml-1.5 text-[10px] text-muted">from {row.from}</span>}</span><span className="tnum shrink-0"><span className="font-medium">{amountText(row.result, focus)} {selectedNutrient.unit}</span>{knownTotal > 0 && row.result.value != null && <span className="ml-2 inline-block w-9 text-right text-muted">{Math.round((row.result.value / knownTotal) * 100)}%</span>}</span></div><div className="h-2 overflow-hidden rounded-full bg-track" aria-hidden="true"><div className="h-full rounded-full transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${max ? ((row.result.value ?? 0) / max) * 100 : 0}%`, background: row.colour }} /></div>{(row.result.status !== 'complete' || row.result.lowEst) && <p className="mt-0.5 text-[10px] text-muted">{valueStatus(row.result)}</p>}</div>)}
             {!rows.length && <div className="rounded-lg border border-dashed border-line px-6 py-8 text-center text-xs text-muted">Your foods will appear here, ranked by their contribution to the selected nutrient.</div>}
           </div>
           {rows.length > 0 && <p className="mt-4 text-[11px] text-muted">Bars share a scale within this nutrient. {selectedValue.missing.length ? `Missing or partial data for ${[...new Set(selectedValue.missing)].join('; ')}. Known subtotals are not complete totals.` : 'Select any nutrient to explore its contributors.'}</p>}

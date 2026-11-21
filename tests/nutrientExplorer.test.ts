@@ -92,3 +92,42 @@ describe('independent nutrient research', () => {
     expect(w.drafts.day.meals.every(m => !m.items.length)).toBe(true)
   })
 })
+
+import { expandRecipe, withMeasure } from '../src/domain/nutrientExplorer'
+import type { RecipeDef } from '../src/domain/types'
+
+describe('recipes and measures in the explorer', () => {
+  const oats = food({ energy: 400, iron: 4 }, { id: 'u:oats', name: 'Oats' })
+  const milk = food({ energy: 60, iron: 0 }, { id: 'u:milk', name: 'Milk', unit: 'ml', density: 1.03 })
+  const porridge: RecipeDef = { portions: 2, ingredients: [
+    { id: '1', foodId: 'u:oats', name: 'Oats', amount: 80, qty: 80, measure: 'g', measureAmount: 1, unit: 'g' },
+    { id: '2', foodId: 'u:milk', name: 'Milk', amount: 300, qty: 2, measure: 'cup (150 ml)', measureAmount: 150, unit: 'ml' },
+  ] }
+  const lookup = (recipes: Record<string, RecipeDef> = {}) => ({ food: (id: string) => ({ 'u:oats': oats, 'u:milk': milk, 'u:porridge': food({}, { id: 'u:porridge', name: 'Porridge', kind: 'recipe' }) } as Record<string, Food>)[id], recipe: (id: string) => recipes[id] })
+
+  it('adds a saved recipe as its separate ingredients, whole or as one portion', () => {
+    const whole = expandRecipe('Porridge', porridge, lookup())
+    expect(whole.entries.map((e) => [e.name, e.amount, e.qty, e.measure, e.fromRecipe])).toEqual([['Oats', 80, 80, 'g', 'Porridge'], ['Milk', 300, 2, 'cup (150 ml)', 'Porridge']])
+    const one = expandRecipe('Porridge', porridge, lookup(), 1 / 2)
+    expect(one.entries.map((e) => [e.amount, e.qty])).toEqual([[40, 40], [150, 1]])
+    const d: ExplorerDraft = { title: '', portions: 1, meals: [{ id: 'm', name: '', items: one.entries }] }
+    expect(exploreNutrients(d).nutrients.energy.value).toBeCloseTo(160 + 90)
+  })
+  it('expands a recipe used inside another recipe, by its share of the finished weight', () => {
+    const breakfast: RecipeDef = { portions: 1, ingredients: [{ id: 'p', foodId: 'u:porridge', name: 'Porridge', amount: 100, qty: 100, measure: 'g', measureAmount: 1, unit: 'g' }] }
+    const withCooked = { ...porridge, ingredients: [porridge.ingredients[0]], cookedWeight: 200 } // 80 g oats cooked to 200 g
+    const out = expandRecipe('Breakfast', breakfast, lookup({ 'u:porridge': withCooked }))
+    expect(out.entries).toHaveLength(1)
+    expect(out.entries[0]).toMatchObject({ name: 'Oats', amount: 40, fromRecipe: 'Breakfast' })
+  })
+  it('reports ingredients missing from the library', () => {
+    const def: RecipeDef = { portions: 1, ingredients: [{ ...porridge.ingredients[0], foodId: 'u:gone', name: 'Gone' }] }
+    expect(expandRecipe('X', def, lookup())).toMatchObject({ entries: [], unknown: ['Gone'] })
+  })
+  it('keeps the amount when the measure changes', () => {
+    const e = { qty: 100, amount: 100, measure: 'g', measureAmount: 1 }
+    expect(withMeasure(e, { label: 'portion', amount: 150 })).toMatchObject({ measure: 'portion', qty: 0.667, amount: 100 })
+    expect(withMeasure(e, { label: 'medium banana', amount: 100 })).toMatchObject({ qty: 1, amount: 100 })
+    expect(withMeasure({ ...e, qty: 0, amount: 0 }, { label: 'portion', amount: 150 })).toMatchObject({ qty: 0, amount: 0 })
+  })
+})

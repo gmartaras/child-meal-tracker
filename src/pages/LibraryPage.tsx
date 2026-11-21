@@ -7,7 +7,6 @@ import { rawValue } from '../domain/calc'
 import { allBranded, allCofid, cofidCount, cofidVersion, getFood, groupName, originalFood, overrideDocId, searchFoods } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
 import { GROUP_ORDER, NUTRIENTS, fmt } from '../domain/nutrients'
-import { explorerEntry } from '../domain/nutrientExplorer'
 import { normaliseRecipe } from '../domain/recipe'
 import type { CustomFood, Food, Measure } from '../domain/types'
 import { useStore } from '../store/store'
@@ -43,6 +42,39 @@ function AddMeasureInline({ unit, onAdd }: { unit: string; onAdd: (m: Measure) =
       <Field label="New portion size" className="flex-1"><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. half a banana" className="h-8" /></Field>
       <Field label={unit} className="w-20"><Input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="tnum h-8" /></Field>
       <Button size="sm" disabled={!label.trim() || !(a > 0)} onClick={() => (onAdd({ label: label.trim(), amount: a }), setLabel(''), setAmount(''))}>Add</Button>
+    </div>
+  )
+}
+
+const SUMMARY = ['energy', 'protein', 'carb', 'fat', 'fibre', 'iron', 'calcium', 'salt']
+
+/** Per-portion headline figures for a saved recipe, with a link to the full ingredient-level analysis. */
+function RecipeSummary({ food, portions, portionWeight, onOpen }: { food: Food; portions: number; portionWeight?: number; onOpen: () => void }) {
+  const weight = portionWeight && portionWeight > 0 ? portionWeight : null
+  return (
+    <div className="mb-4 rounded-xl border border-line bg-surface-2/50 p-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-semibold">Per portion</span>
+        <span className="text-[12px] text-muted">{weight ? `${fmt(weight, 0)} g · 1 of ${portions}` : `1 of ${portions}`}</span>
+      </div>
+      {weight ? (
+        <div className="grid grid-cols-4 gap-x-3 gap-y-2">
+          {SUMMARY.map((id) => {
+            const n = NUTRIENTS.find((x) => x.id === id)!
+            const { v } = rawValue(food, id)
+            const partial = food.partial?.includes(id === 'salt' ? 'sodium' : id)
+            return (
+              <div key={id} className="min-w-0">
+                <div className="truncate text-[11px] text-muted">{n.short ?? n.label}</div>
+                <div className="tnum text-[13.5px] font-medium">{v == null ? '–' : `${partial ? '≥ ' : ''}${fmt((v * weight) / 100, n.dp)}`}<span className="ml-0.5 text-[11px] font-normal text-muted">{v == null ? '' : n.unit}</span></div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-[12.5px] text-ink-2">Portion weight unknown. Open the analysis to see per-portion values.</p>
+      )}
+      <Button size="sm" variant="primary" icon="chart" className="mt-3 w-full" onClick={onOpen}>See which ingredients provide each nutrient</Button>
     </div>
   )
 }
@@ -83,12 +115,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
         ) : (
           <Button size="sm" variant="primary" icon="edit" onClick={() => onEdit(isCofid ? { type: 'original', foodId: food.id } : { type: 'edit', food: custom! })}>Edit</Button>
         ))}
-        <Button size="sm" icon="chart" onClick={() => {
-          const { nutrientWorkspace: w, setNutrientWorkspace } = useStore.getState()
-          const d = w.drafts.foods
-          setNutrientWorkspace({ ...w, mode: 'foods', drafts: { ...w.drafts, foods: { ...d, meals: [{ ...d.meals[0], items: [...d.meals[0].items, explorerEntry(food)] }] } } })
-          nav('/explorer')
-        }}>Add to Explorer</Button>
+        {!recipe && <Button size="sm" icon="chart" onClick={() => nav(`/explorer?food=${encodeURIComponent(food.id)}`)}>Analyse in Nutrient Explorer</Button>}
         <Button size="sm" icon="copy" onClick={() => onEdit({ type: 'version', sourceId: food.id })}>Make a version</Button>
         {food.edited && <Button size="sm" onClick={() => confirmDialog(`Put “${orig?.name}” back to the original CoFID values?`) && deleteFood(overrideDocId(food.id))}>Revert to original</Button>}
         <Button size="sm" variant="ghost" onClick={() => update({ favourites: isFav ? settings.favourites.filter((x) => x !== food.id) : [...settings.favourites, food.id] })}><Icon name="star" size={14} filled={isFav} className={isFav ? 'text-warning' : ''} /> {isFav ? 'Favourite' : 'Add to favourites'}</Button>
@@ -100,6 +127,7 @@ function Detail({ food, custom, onEdit, onClose }: { food: Food; custom?: Custom
           <p className="mt-1">Declared values only. Undeclared nutrients remain unknown. Use a version to record a different pack or formulation.</p>
           <a href={food.labelSource.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block font-medium text-accent-ink underline">View {food.labelSource.publisher} label</a>
         </div>}
+        {recipe && <RecipeSummary food={food} portions={recipe.portions} portionWeight={(custom?.measures ?? []).find((m) => m.label === 'portion')?.amount} onOpen={() => nav(`/explorer?recipe=${encodeURIComponent(food.id)}`)} />}
         {recipe && (
           <div className="mb-4">
             <div className="mb-1 text-[12px] font-medium text-muted">Ingredients · makes {recipe.portions} portion{recipe.portions === 1 ? '' : 's'}</div>

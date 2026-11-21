@@ -11,6 +11,7 @@ import { analyse, isUsual, previousAssessment } from '../domain/analysis'
 import { dailyAmount, dayItems, foodOf, freqFactor, rawValue } from '../domain/calc'
 import { BREAST_MILK_ID, getFood } from '../domain/foods'
 import { measuresFor } from '../domain/measures'
+import { withMeasure } from '../domain/nutrientExplorer'
 import { NUTRIENT_BY_ID, fmt } from '../domain/nutrients'
 import { splitDiaryByDay } from '../domain/parse'
 import { MEAL_NAMES, type Assessment, type CustomFood, type Day, type Food, type Freq, type Item, type Measure } from '../domain/types'
@@ -91,7 +92,10 @@ function ItemRow({ item, usual, ageMonths, autoFocus, onChange, onRemove, onDone
     if (label === '__add') return setAdding(true)
     const m = options.find((x) => x.label === label)
     if (!m) return
-    onChange({ ...item, measure: m.label, measureAmount: m.amount, amount: item.qty * m.amount, estimate: m.estimate || undefined })
+    // keep the amount eaten: 100 g switched to a 150 g portion becomes 0.667 portions, not 100
+    const next = withMeasure(item, m)
+    setQtyText(next.qty ? String(next.qty) : '')
+    onChange({ ...next, estimate: m.estimate || undefined })
   }
 
   return (
@@ -163,7 +167,9 @@ function ItemRow({ item, usual, ageMonths, autoFocus, onChange, onRemove, onDone
           onClose={() => setAdding(false)}
           onSave={(m) => {
             updateSettings({ measures: { ...settings.measures, [item.foodId]: [...(settings.measures[item.foodId] ?? []).filter((x) => x.label !== m.label), m] } })
-            onChange({ ...item, measure: m.label, measureAmount: m.amount, amount: item.qty * m.amount, estimate: undefined })
+            const next = withMeasure(item, m)
+            setQtyText(next.qty ? String(next.qty) : '')
+            onChange({ ...next, estimate: undefined })
             setAdding(false)
           }}
         />

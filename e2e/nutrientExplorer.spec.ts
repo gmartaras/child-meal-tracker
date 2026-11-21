@@ -62,10 +62,52 @@ test('builds a recipe, scales its yield and saves a usable library recipe', asyn
   await expect(page.getByRole('status')).toContainText('Recipe saved to your library')
   await page.getByRole('button', { name: 'Foods One food or a combination' }).click()
   await expect(page.getByTestId('explorer-entry')).toHaveCount(0)
+  // a saved recipe is added as its ingredients, one portion's worth
   await pick(page, 'Synthetic banana recipe', /Synthetic banana recipe/)
-  await page.getByLabel('Measure for Synthetic banana recipe').selectOption('portion')
-  await page.getByLabel('Quantity of Synthetic banana recipe').fill('1')
+  await expect(page.getByTestId('explorer-entry')).toHaveCount(1)
+  await expect(page.getByTestId('explorer-entry')).toContainText('from Synthetic banana recipe')
+  await expect(page.getByLabel('Quantity of Bananas, flesh only', { exact: true })).toHaveValue('50')
   expect(Number(await page.getByTestId('explorer-energy').innerText())).toBe(Math.round(energy / 2))
+})
+
+test('opens a saved recipe from the library, broken down by ingredient', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto('/?demo=1#/explorer')
+  await page.getByRole('button', { name: 'Recipe Ingredients, yield & portions' }).click()
+  await page.getByLabel('Exploration title').fill('Synthetic porridge')
+  await pick(page, 'porridge oats', /Porridge oats, unfortified/)
+  await page.getByLabel('Quantity of Porridge oats, unfortified', { exact: true }).fill('80')
+  await pick(page, '12-596', /Milk, whole, pasteurised, average/)
+  await page.getByLabel('Quantity of Milk, whole, pasteurised, average', { exact: true }).fill('300')
+  await page.getByLabel('Number of portions', { exact: true }).fill('2')
+  await page.getByRole('button', { name: 'Save as library recipe' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Save recipe', exact: true }).click()
+
+  // library: per-portion summary and a direct route to the full analysis
+  await page.goto('/?demo=1#/foods')
+  await page.getByLabel('Search the food library').fill('Synthetic porridge')
+  await page.getByRole('button', { name: /^Synthetic porridge/ }).first().click()
+  await expect(page.getByText('Per portion', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'See which ingredients provide each nutrient' }).click()
+
+  // explorer: recipe tab, ingredients listed separately, per portion
+  await expect(page.getByLabel('Exploration title')).toHaveValue('Synthetic porridge')
+  await expect(page.getByTestId('explorer-entry')).toHaveCount(2)
+  await expect(page.getByLabel('Analysis basis')).toHaveValue('portion')
+  await page.getByRole('button', { name: 'Chart Iron', exact: true }).click()
+  const iron = page.getByRole('list', { name: 'Iron contributions' })
+  await expect(iron.getByRole('listitem')).toHaveCount(2)
+  await expect(iron).toContainText('Porridge oats, unfortified')
+  await expect(iron).toContainText('%')
+
+  // switching measure keeps the amount
+  const milkQty = page.getByLabel('Quantity of Milk, whole, pasteurised, average', { exact: true })
+  const energy = await page.getByTestId('explorer-energy').innerText()
+  await page.getByLabel('Measure for Milk, whole, pasteurised, average').selectOption('cup (200 ml)')
+  await expect(milkQty).toHaveValue('1.46')
+  await expect(page.getByTestId('explorer-energy')).toHaveText(energy)
+  expect(errors).toEqual([])
 })
 
 test('builds chronological meals, shows missing data and fits a mobile viewport', async ({ page }) => {

@@ -1,11 +1,12 @@
 import { rawValue } from './calc'
 import { NUTRIENTS } from './nutrients'
-import type { Food, Ingredient } from './types'
+import type { Food, Ingredient, Measure, RecipeDef } from './types'
 
 export const COFID_SOURCE = 'https://www.gov.uk/government/publications/composition-of-foods-integrated-dataset-cofid'
 export type ExplorerMode = 'foods' | 'recipe' | 'day'
 export type ExplorerBasis = 'entered' | 'portion' | '100g' | '100ml'
-export interface ExplorerEntry extends Ingredient { food: Food }
+/** `fromRecipe` names the saved recipe an ingredient was expanded from. */
+export interface ExplorerEntry extends Ingredient { food: Food; fromRecipe?: string }
 export interface ExplorerMeal { id: string; name: string; items: ExplorerEntry[] }
 export interface ExplorerDraft { title: string; meals: ExplorerMeal[]; portions: number; cookedWeight?: number }
 export interface NutrientWorkspace { mode: ExplorerMode; drafts: Record<ExplorerMode, ExplorerDraft> }
@@ -22,6 +23,61 @@ export function newWorkspace(): NutrientWorkspace {
 export function explorerEntry(food: Food): ExplorerEntry {
   const amount = food.per
   return { id: crypto.randomUUID(), foodId: food.id, name: food.name, amount, qty: amount, unit: food.unit, measure: food.unit, measureAmount: 1, food: structuredClone(food) }
+}
+
+/**
+ * Change the measure of an entry while keeping the amount eaten: 100 g switched to “portion (153 g)”
+ * becomes 0.654 portions, not 100 portions. The amount in grams (or ml / doses) never changes.
+ */
+export function withMeasure<T extends Pick<Ingredient, 'qty' | 'amount' | 'measure' | 'measureAmount'>>(entry: T, m: Measure): T {
+  if (!(m.amount > 0)) return entry
+  const amount = entry.amount > 0 ? entry.amount : 0
+  const qty = amount ? Number((amount / m.amount).toPrecision(3)) : 0
+  return { ...entry, measure: m.label, measureAmount: m.amount, qty, amount }
+}
+
+export interface RecipeLookup {
+  food(id: string): Food | undefined
+  recipe(id: string): RecipeDef | undefined
+}
+
+export interface ExpandedRecipe {
+  entries: ExplorerEntry[]
+  /** ingredients no longer in the library, which could not be added */
+  unknown: string[]
+}
+
+/**
+ * A saved recipe as its separate ingredients, so each one can be adjusted and seen as a contributor.
+ * `scale` 1 gives the whole recipe; 1 / portions gives one portion. Recipes used as ingredients of
+ * another recipe are expanded too (up to three levels deep).
+ */
+export function expandRecipe(recipeName: string, def: RecipeDef, lookup: RecipeLookup, scale = 1, depth = 0): ExpandedRecipe {
+  const entries: ExplorerEntry[] = []
+  const unknown: string[] = []
+  for (const ing of def.ingredients) {
+    if (!(ing.amount > 0)) continue
+    const f = lookup.food(ing.foodId)
+    if (!f) {
+      unknown.push(ing.name)
+      continue
+    }
+    const inner = lookup.recipe(f.id)
+    if (inner && depth < 3 && ing.unit === 'g') {
+      // grams of the sub-recipe as a share of its finished weight, applied to each of its ingredients
+      const raw = inner.ingredients.reduce((sum, i) => sum + (i.unit === 'g' ? i.amount : 0), 0)
+      const finished = inner.cookedWeight && inner.cookedWeight > 0 ? inner.cookedWeight : raw
+      if (finished > 0) {
+        const sub = expandRecipe(recipeName, inner, lookup, (scale * ing.amount) / finished, depth + 1)
+        entries.push(...sub.entries)
+        unknown.push(...sub.unknown)
+        continue
+      }
+    }
+    const base = explorerEntry(f)
+    entries.push({ ...base, name: f.name, qty: Number((ing.qty * scale).toPrecision(4)), measure: ing.measure, measureAmount: ing.measureAmount, amount: ing.amount * scale, fromRecipe: recipeName })
+  }
+  return { entries, unknown }
 }
 
 export interface ExplorerValue {
