@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 async function pick(page: Page, search: string, name: RegExp) {
-  const input = page.getByRole('combobox', { name: /Search (foods|ingredients)/ })
+  const input = page.getByRole('combobox', { name: /^Add (a food|an ingredient|to )/ })
   await input.fill(search)
   await page.getByRole('option', { name }).first().click()
 }
@@ -22,7 +22,7 @@ test('explores portions, charts and source exports without creating client recor
   await page.getByRole('button', { name: 'Halve Bananas, flesh only', exact: true }).click()
   await expect(amount).toHaveValue('50')
   expect(Number(await energy.innerText())).toBe(Math.round(whole / 2))
-  await page.getByLabel('Analysis basis').selectOption('100g')
+  await page.getByRole('radiogroup', { name: 'Analysis basis' }).getByRole('radio', { name: /^Per 100 g/ }).click()
   await expect(energy).toHaveText(String(whole))
   await page.getByRole('button', { name: 'Chart Potassium', exact: true }).click()
   await expect(page.getByRole('list', { name: 'Potassium contributions' })).toContainText('Bananas, flesh only')
@@ -45,22 +45,22 @@ test('explores portions, charts and source exports without creating client recor
 
 test('builds a recipe, scales its yield and saves a usable library recipe', async ({ page }) => {
   await page.goto('/?demo=1#/explorer')
-  await page.getByRole('button', { name: 'Recipe Ingredients, yield & portions' }).click()
+  await page.getByRole('button', { name: 'Recipe', exact: true }).click()
   await page.getByLabel('Exploration title').fill('Synthetic banana recipe')
   await pick(page, 'banana', /Bananas, flesh only/)
   const energy = Number(await page.getByTestId('explorer-energy').innerText())
   await page.getByLabel('Number of portions', { exact: true }).fill('2')
   await page.getByLabel('Finished weight (g)', { exact: true }).fill('80')
-  await page.getByLabel('Analysis basis').selectOption('portion')
+  await page.getByRole('radiogroup', { name: 'Analysis basis' }).getByRole('radio', { name: /^Per portion/ }).click()
   expect(Number(await page.getByTestId('explorer-energy').innerText())).toBe(Math.round(energy / 2))
-  await page.getByLabel('Analysis basis').selectOption('100g')
+  await page.getByRole('radiogroup', { name: 'Analysis basis' }).getByRole('radio', { name: /^Per 100 g/ }).click()
   expect(Number(await page.getByTestId('explorer-energy').innerText())).toBe(Math.round(energy / 0.8))
   await page.getByRole('button', { name: 'Save as library recipe' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Recipe name')).toHaveValue('Synthetic banana recipe')
   await dialog.getByRole('button', { name: 'Save recipe', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Recipe saved to your library')
-  await page.getByRole('button', { name: 'Foods One food or a combination' }).click()
+  await page.getByRole('button', { name: 'Foods', exact: true }).click()
   await expect(page.getByTestId('explorer-entry')).toHaveCount(0)
   // a saved recipe is added as its ingredients, one portion's worth
   await pick(page, 'Synthetic banana recipe', /Synthetic banana recipe/)
@@ -74,7 +74,7 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
   await page.goto('/?demo=1#/explorer')
-  await page.getByRole('button', { name: 'Recipe Ingredients, yield & portions' }).click()
+  await page.getByRole('button', { name: 'Recipe', exact: true }).click()
   await page.getByLabel('Exploration title').fill('Synthetic porridge')
   await pick(page, 'porridge oats', /Porridge oats, unfortified/)
   await page.getByLabel('Quantity of Porridge oats, unfortified', { exact: true }).fill('80')
@@ -96,7 +96,12 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
   // explorer: recipe tab, ingredients listed separately, per portion
   await expect(page.getByLabel('Exploration title')).toHaveValue('Synthetic porridge')
   await expect(page.getByTestId('explorer-entry')).toHaveCount(2)
-  await expect(page.getByLabel('Analysis basis')).toHaveValue('portion')
+  await expect(page.getByRole('radiogroup', { name: 'Analysis basis' }).getByRole('radio', { name: /^Per portion/ })).toHaveAttribute('aria-checked', 'true')
+  // the basis switch and the breakdown stay on screen however far the page is scrolled
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.locator('main').evaluate((m) => m.scrollTo(0, m.scrollHeight))
+  await expect(page.getByRole('radiogroup', { name: 'Analysis basis' })).toBeInViewport()
+  await expect(page.getByRole('list', { name: /contributions$/ })).toBeInViewport()
   await page.getByRole('button', { name: 'Chart Iron', exact: true }).click()
   const iron = page.getByRole('list', { name: 'Iron contributions' })
   await expect(iron.getByRole('listitem')).toHaveCount(2)
@@ -118,7 +123,7 @@ test('opens a saved recipe from the library, broken down by ingredient', async (
 test('builds chronological meals, shows missing data and fits a mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/?demo=1#/explorer')
-  await page.getByRole('button', { name: 'Full day' }).click()
+  await page.getByRole('button', { name: 'Full day', exact: true }).click()
   await pick(page, 'banana', /Bananas, flesh only/)
   const breakfast = Number(await page.getByTestId('explorer-energy').innerText())
   await page.getByRole('button', { name: /Lunch/ }).click()

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FoodSearch } from '../components/FoodSearch'
 import { RecipeEditor } from '../components/RecipeEditor'
@@ -68,6 +68,17 @@ export default function NutrientExplorerPage() {
   const [savedRecipe, setSavedRecipe] = useState<string | null>(null)
   const [breakdown, setBreakdown] = useState<'food' | 'meal'>('food')
   const [notice, setNotice] = useState('')
+  // the sticky "Showing" bar's height, so the panes below fit the rest of the screen
+  const barRef = useRef<HTMLDivElement>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+  const [barHeight, setBarHeight] = useState(150)
+  useEffect(() => {
+    const el = barRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setBarHeight(el.offsetHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const [params, setParams] = useSearchParams()
   const customFoods = useStore(s => s.foods)
   const lookup = useMemo<RecipeLookup>(() => {
@@ -151,79 +162,117 @@ export default function NutrientExplorerPage() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  return <div className="mx-auto max-w-[1600px] space-y-5 px-4 py-5 sm:px-6 lg:px-8">
-    <header className="flex flex-wrap items-start justify-between gap-4">
-      <div><div className="mb-1 flex items-center gap-2 text-xs font-medium text-accent-ink"><Icon name="chart" size={14} /> RESEARCH WORKSPACE</div><h1 className="text-2xl font-semibold tracking-tight">Nutrient Explorer</h1><p className="mt-1 text-[13px] text-ink-2">Explore a food. Build a recipe. See the whole day.</p></div>
-      <Button icon="download" disabled={!totals.entries.length} onClick={exportCsv}>Export analysis</Button>
+  // every option of the one control that changes all figures on the screen
+  const basisOptions: { id: ExplorerBasis; label: string; hint: string; disabled?: string }[] = [
+    { id: 'entered', label: mode === 'recipe' ? 'Whole recipe' : mode === 'day' ? 'Whole day' : 'As entered', hint: mode === 'recipe' ? 'all ingredients together' : mode === 'day' ? 'every meal added up' : 'the amounts in the list' },
+    ...(mode === 'recipe' ? [{ id: 'portion' as const, label: 'Per portion', hint: `1 of ${draft.portions || '?'}${whole.finalWeight && draft.portions >= 1 ? ` · ${fmt(whole.finalWeight / draft.portions, 0)} g` : ''}`, disabled: draft.portions < 1 ? 'Enter the number of portions' : undefined }] : []),
+    ...(mode !== 'day' ? [{ id: '100g' as const, label: 'Per 100 g', hint: 'to compare foods', disabled: whole.finalWeight ? undefined : 'Needs a known weight: enter the finished weight' }] : []),
+    ...(mode === 'foods' && whole.volume ? [{ id: '100ml' as const, label: 'Per 100 ml', hint: 'to compare drinks' }] : []),
+  ]
+  const chooseNutrient = (id: string) => {
+    setFocus(id)
+    // on narrow screens the breakdown sits above the list: bring it into view
+    if (window.matchMedia('(max-width: 1023px)').matches) detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8">
+    <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <h1 className="text-xl font-semibold tracking-tight">Nutrient Explorer</h1>
+      <div className="flex rounded-lg border border-line bg-surface-2 p-0.5" role="group" aria-label="Exploration type">
+        {MODES.map(m => <button key={m.id} type="button" title={m.hint} aria-pressed={mode === m.id} onClick={() => chooseMode(m.id)} className={cx('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors', mode === m.id ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink')}><Icon name={m.icon} size={14} />{m.label}</button>)}
+      </div>
+      <span className="hidden text-xs text-muted md:inline">{MODES.find(m => m.id === mode)?.hint}</span>
+      <Button className="ml-auto" size="sm" icon="download" disabled={!totals.entries.length} onClick={exportCsv}>Export analysis</Button>
     </header>
 
-    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Exploration type">
-      {MODES.map(m => <button key={m.id} type="button" aria-pressed={mode === m.id} onClick={() => chooseMode(m.id)} className={cx('flex items-center gap-3 rounded-xl border p-3 text-left transition-colors sm:p-4', mode === m.id ? 'border-accent bg-accent-wash ring-1 ring-accent/15' : 'border-line bg-surface hover:border-line-strong')}><Icon name={m.icon} className="hidden text-accent-ink sm:block" size={21} /><span><span className="block text-sm font-semibold">{m.label}</span><span className="mt-0.5 hidden text-xs text-muted sm:block">{m.hint}</span></span></button>)}
-    </div>
-
-    <div className="grid items-start gap-5 xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.4fr)]">
-      <div className="min-w-0 space-y-3">
-        <Card>
-          <div className="space-y-3 border-b border-line p-4">
-            <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{mode === 'recipe' ? 'Build your recipe' : mode === 'day' ? 'Build your day' : 'Choose your foods'}</h2>{entered.length > 0 && <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('Clear this exploration? Other exploration tabs and saved recipes will stay.')) { update(newWorkspace().drafts[mode]); setBasis('entered') } }}>Clear</Button>}</div>
-            <Input aria-label="Exploration title" value={draft.title} onChange={e => update({ title: e.target.value })} />
-            {mode === 'day' && <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Meals in chronological order">{draft.meals.map((m, index) => <button type="button" key={m.id} onClick={() => setMealId(m.id)} aria-pressed={m.id === activeMeal.id} className={cx('rounded-lg border px-2 py-2 text-left', m.id === activeMeal.id ? 'border-accent bg-accent-wash' : 'border-line hover:bg-surface-2')}><span className="block text-[10px] text-muted">{String(index + 1).padStart(2, '0')} · {m.items.length} food{m.items.length === 1 ? '' : 's'}</span><span className="text-xs font-medium">{m.name}</span></button>)}</div>}
-            <FoodSearch placeholder={mode === 'recipe' ? 'Search ingredients or saved recipes…' : 'Search foods, brands or recipes…'} onPick={add} />
-            <p className="text-[11px] text-muted">UK CoFID, branded foods and your library. Foods start at 100 g / ml, or one dose; saved recipes are added as their ingredients. Changing the measure keeps the amount.</p>
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(300px,350px)_minmax(0,1fr)]">
+      {/* inputs: stay in view while reading the analysis; long lists scroll inside the card */}
+      <div className="min-w-0 space-y-3 xl:sticky xl:top-3">
+        <Card className="flex flex-col xl:max-h-[calc(100dvh-1.5rem)]">
+          <div className="space-y-2.5 border-b border-line p-3.5">
+            <div className="flex items-center gap-2">
+              <Input aria-label="Exploration title" value={draft.title} onChange={e => update({ title: e.target.value })} className="flex-1 font-medium" />
+              {entered.length > 0 && <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('Clear this exploration? Other exploration tabs and saved recipes will stay.')) { update(newWorkspace().drafts[mode]); setBasis('entered') } }}>Clear</Button>}
+            </div>
+            {mode === 'recipe' && <div className="grid grid-cols-2 gap-2">
+              <Field label="Number of portions"><Input type="number" min="1" step="1" value={draft.portions || ''} onChange={e => update({ portions: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} /></Field>
+              <Field label="Finished weight (g)"><Input type="number" min="0.1" step="any" value={draft.cookedWeight ?? ''} placeholder={whole.rawWeight ? String(Math.round(whole.rawWeight)) : 'Optional'} onChange={e => update({ cookedWeight: e.target.valueAsNumber > 0 ? e.target.valueAsNumber : undefined })} /></Field>
+            </div>}
+            {mode === 'recipe' && draft.portions < 1 && <p className="text-xs text-warning-ink">Enter at least one portion to analyse or save portions.</p>}
+            {mode === 'day' && <div className="grid grid-cols-3 gap-1" role="group" aria-label="Meals in chronological order">{draft.meals.map(m => <button type="button" key={m.id} onClick={() => setMealId(m.id)} aria-pressed={m.id === activeMeal.id} className={cx('rounded-md border px-2 py-1.5 text-left text-xs', m.id === activeMeal.id ? 'border-accent bg-accent-wash font-medium' : 'border-line hover:bg-surface-2')}>{m.name}<span className="ml-1 text-muted">{m.items.length || ''}</span></button>)}</div>}
+            <FoodSearch placeholder={mode === 'recipe' ? 'Add an ingredient or saved recipe…' : mode === 'day' ? `Add to ${activeMeal.name.toLowerCase()}…` : 'Add a food, brand or recipe…'} onPick={add} />
             {notice && <p role="status" className="flex items-start gap-2 rounded-lg bg-accent-wash px-3 py-2 text-xs text-ink"><Icon name="info" size={14} className="mt-0.5 text-accent-ink" /><span className="flex-1">{notice}</span><button type="button" aria-label="Dismiss" className="text-muted hover:text-ink" onClick={() => setNotice('')}><Icon name="x" size={13} /></button></p>}
           </div>
-          {activeMeal.items.length ? <ul>{activeMeal.items.map(entry => <EntryRow key={entry.id} entry={entry} title={draft.title} portions={mode === 'recipe' && draft.portions >= 1 ? draft.portions : undefined} change={next => updateItems(activeMeal.items.map(i => i.id === entry.id ? next : i))} remove={() => updateItems(activeMeal.items.filter(i => i.id !== entry.id))} />)}</ul> : <div className="px-6 py-9 text-center"><Icon name="apple" size={26} className="mx-auto mb-3 text-accent-ink" /><h3 className="text-sm font-medium">{mode === 'day' ? `What’s for ${activeMeal.name.toLowerCase()}?` : mode === 'recipe' ? 'Start with an ingredient' : 'What would you like to explore?'}</h3><p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted">Search above for a food or saved recipe, then adjust its weight or household measure.</p><div className="mt-3 flex justify-center gap-2"><Link to="/foods" className="text-xs text-accent-ink underline underline-offset-4">Browse the food library</Link></div></div>}
-          {mode === 'recipe' && <div className="space-y-3 border-t border-line p-4">
-            <div className="grid grid-cols-2 gap-3"><Field label="Number of portions"><Input type="number" min="1" step="1" value={draft.portions || ''} onChange={e => update({ portions: Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : 0 })} /></Field><Field label="Finished weight (g)"><Input type="number" min="0.1" step="any" value={draft.cookedWeight ?? ''} placeholder={whole.rawWeight ? String(Math.round(whole.rawWeight)) : 'Optional'} onChange={e => update({ cookedWeight: e.target.valueAsNumber > 0 ? e.target.valueAsNumber : undefined })} /></Field></div>
-            {draft.portions < 1 && <p className="text-xs text-warning-ink">Enter at least one portion to analyse or save portions.</p>}
-            <p className="text-xs leading-relaxed text-muted">{whole.finalWeight && draft.portions >= 1 ? `One portion ≈ ${fmt(whole.finalWeight / draft.portions, 1)} g. ` : ''}Finished weight accounts for water gained or lost. Cooking losses of nutrients are not modelled.</p>
+          <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+            {activeMeal.items.length ? <ul>{activeMeal.items.map(entry => <EntryRow key={entry.id} entry={entry} title={draft.title} portions={mode === 'recipe' && draft.portions >= 1 ? draft.portions : undefined} change={next => updateItems(activeMeal.items.map(i => i.id === entry.id ? next : i))} remove={() => updateItems(activeMeal.items.filter(i => i.id !== entry.id))} />)}</ul> : <div className="px-6 py-8 text-center"><Icon name="apple" size={24} className="mx-auto mb-2 text-accent-ink" /><h3 className="text-sm font-medium">{mode === 'day' ? `What’s for ${activeMeal.name.toLowerCase()}?` : mode === 'recipe' ? 'Start with an ingredient' : 'What would you like to explore?'}</h3><p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted">UK CoFID, branded foods and your library. Foods start at 100 g / ml or one dose; saved recipes come in as their ingredients.</p><Link to="/foods" className="mt-2 inline-block text-xs text-accent-ink underline underline-offset-4">Browse the food library</Link></div>}
+          </div>
+          {mode === 'recipe' && <div className="space-y-1.5 border-t border-line p-3.5">
             <Button icon="plus" disabled={!entered.length || entered.some(i => !(i.amount > 0)) || draft.portions < 1 || !draft.title.trim() || !whole.finalWeight} onClick={() => setShowRecipe(true)} className="w-full">Save as library recipe</Button>
-            <p className="text-[11px] text-muted">Review the recipe using current library values before saving.</p>
-            {!whole.finalWeight && entered.length > 0 && <p className="text-xs text-warning-ink">Enter a finished weight to save this recipe. Some ingredients have no known weight conversion.</p>}
+            {!whole.finalWeight && entered.length > 0 ? <p className="text-xs text-warning-ink">Enter a finished weight to save this recipe. Some ingredients have no known weight conversion.</p> : <p className="text-[11px] text-muted">Saving creates a new library recipe; the original is never changed. Cooking losses of nutrients are not modelled.</p>}
           </div>}
         </Card>
         <Button className="w-full xl:hidden" disabled={!totals.entries.length} onClick={() => document.getElementById('explorer-analysis')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>View nutrient analysis ↓</Button>
         {savedRecipe && <p role="status" className="rounded-lg border border-line bg-surface p-3 text-xs text-good-ink">Recipe saved to your library. <Link to={`/foods?food=${encodeURIComponent(savedRecipe)}`} className="underline">View recipe</Link></p>}
-        <div className="flex items-start gap-2 px-1 text-xs leading-relaxed text-muted"><Icon name="info" size={14} className="mt-0.5" /><p>This workspace stays available as you move around the app. It clears on refresh or sign-out. Export to keep your analysis, or save a recipe to your library. Client records are unchanged.</p></div>
       </div>
 
-      <div id="explorer-analysis" className="min-w-0 space-y-4">
-        <Card className="p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-semibold">Nutrient overview</h2><p className="mt-0.5 text-xs text-muted">Updates as you adjust foods and amounts</p></div><Select className="w-auto text-xs" aria-label="Analysis basis" value={basis} onChange={e => setBasis(e.target.value as ExplorerBasis)}><option value="entered">{mode === 'recipe' ? 'Whole recipe' : mode === 'day' ? 'Whole day' : 'Entered amounts'}</option>{mode === 'recipe' && <option value="portion" disabled={draft.portions < 1}>Per portion</option>}{mode !== 'day' && <option value="100g" disabled={!whole.finalWeight}>Per 100 g</option>}{mode === 'foods' && whole.volume && <option value="100ml">Per 100 ml</option>}</Select></div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{['energy', 'protein', 'carb', 'fat'].map((id, index) => <button key={id} type="button" aria-pressed={focus === id} onClick={() => setFocus(id)} className={cx('rounded-lg border p-3 text-left transition-colors', focus === id ? 'border-accent bg-accent-wash' : 'border-line hover:bg-surface-2')}><span className="mb-2 block text-xs text-muted">{NUTRIENT_BY_ID[id].label}</span><span className="tnum text-xl font-semibold tracking-tight" data-testid={`explorer-${id}`}>{amountText(totals.nutrients[id], id)}</span><span className="ml-1 text-xs text-muted">{NUTRIENT_BY_ID[id].unit}</span><span className="mt-2 block h-0.5 w-6 rounded-full" style={{ background: COLOURS[index] }} /><span className="mt-1 block text-[10px] text-muted">{valueStatus(totals.nutrients[id])}</span></button>)}</div>
-          {totals.entries.length > 0 && <div className="mt-4 border-t border-line pt-3">
-            <p className="mb-2 text-[11px] text-muted">Macronutrients in grams · a shared weight scale</p>
-            <div className="space-y-2" role="list" aria-label="Macronutrient weights">{['protein', 'carb', 'fat'].map((id, index) => {
-              const v = totals.nutrients[id]
-              const macroMax = Math.max(...['protein', 'carb', 'fat'].map(key => totals.nutrients[key].value ?? 0))
-              return <div role="listitem" key={id}><button type="button" onClick={() => setFocus(id)} aria-label={`Explore ${NUTRIENT_BY_ID[id].label} contribution`} className="grid w-full grid-cols-[84px_minmax(0,1fr)_68px] items-center gap-2 text-left text-[11px]"><span>{NUTRIENT_BY_ID[id].label}</span><span className="h-1.5 overflow-hidden rounded-full bg-track" aria-hidden="true"><span className="block h-full rounded-full" style={{ background: COLOURS[index + 1], width: `${macroMax ? (v.value ?? 0) / macroMax * 100 : 0}%` }} /></span><span className="tnum text-right">{amountText(v, id)} g</span></button></div>
-            })}</div>
-          </div>}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted"><span>{basisLabel} · {totals.entries.length} food{totals.entries.length === 1 ? '' : 's'} included</span><span>{totals.entries.length ? `${knownCount} / ${NUTRIENTS.length} nutrients with complete data` : 'Add foods to begin'}</span></div>
-          {entered.some(i => !(i.amount > 0)) && <p role="status" className="mt-2 text-xs text-warning-ink">Foods without a positive amount are excluded. Set their quantities to include them.</p>}
-        </Card>
+      <div id="explorer-analysis" className="min-w-0">
+        {/* the one control that changes every figure, with the headline figures, always in view */}
+        <div ref={barRef} className="sticky top-0 z-20 -mx-1 bg-bg px-1 pt-1 pb-3">
+          <Card className="p-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="text-xs font-semibold tracking-wide text-ink-2 uppercase">Showing</span>
+              <div role="radiogroup" aria-label="Analysis basis" className="flex flex-wrap gap-1 rounded-lg bg-surface-2 p-1">
+                {basisOptions.map(o => <button key={o.id} type="button" role="radio" aria-checked={basis === o.id} disabled={!!o.disabled} title={o.disabled ?? o.hint} onClick={() => setBasis(o.id)} className={cx('rounded-md px-3 py-1.5 text-left text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40', basis === o.id ? 'bg-ink text-surface shadow-sm' : 'text-ink-2 hover:bg-surface hover:text-ink')}>
+                  {o.label}<span className={cx('hidden text-[10.5px] font-normal sm:block', basis === o.id ? 'opacity-75' : 'text-muted')}>{o.hint}</span>
+                </button>)}
+              </div>
+              <span className="text-[11px] text-muted">Every figure on this page · {totals.entries.length} food{totals.entries.length === 1 ? '' : 's'} included{totals.entries.length ? ` · ${knownCount}/${NUTRIENTS.length} nutrients complete` : ''}</span>
+            </div>
+            <div className="mt-2.5 grid grid-cols-4 gap-1.5 sm:gap-2">{['energy', 'protein', 'carb', 'fat'].map((id, index) => <button key={id} type="button" aria-pressed={focus === id} onClick={() => chooseNutrient(id)} className={cx('min-w-0 rounded-lg border px-2 py-1.5 text-left transition-colors sm:px-3 sm:py-2', focus === id ? 'border-accent bg-accent-wash' : 'border-line hover:bg-surface-2')}>
+              <span className="flex items-center justify-between truncate text-[11px] text-muted">{NUTRIENT_BY_ID[id].short ?? NUTRIENT_BY_ID[id].label}<span className="h-0.5 w-5 rounded-full" style={{ background: COLOURS[index] }} /></span>
+              <span className="tnum text-base font-semibold tracking-tight sm:text-lg" data-testid={`explorer-${id}`}>{amountText(totals.nutrients[id], id)}</span><span className="ml-1 text-xs text-muted">{NUTRIENT_BY_ID[id].unit}</span>
+            </button>)}</div>
+            {entered.some(i => !(i.amount > 0)) && <p role="status" className="mt-2 text-xs text-warning-ink">Foods without a positive amount are excluded. Set their quantities to include them.</p>}
+          </Card>
+        </div>
 
-        <Card className="p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">Where the nutrients come from</h2><Select className="w-auto max-w-full text-xs" aria-label="Chart nutrient" value={focus} onChange={e => setFocus(e.target.value)}>{NUTRIENTS.map(n => <option key={n.id} value={n.id}>{n.label} ({n.unit})</option>)}</Select></div>
-          <div className="mt-4 flex flex-wrap items-end justify-between gap-3"><div><span className="tnum text-3xl font-semibold tracking-tight">{amountText(selectedValue, focus)}</span><span className="ml-1.5 text-sm text-muted">{selectedNutrient.unit} {selectedNutrient.label.toLowerCase()}</span><p className="mt-1 text-xs text-muted">{basisLabel} · {valueStatus(selectedValue)}</p></div>{mode === 'day' && <div className="flex rounded-lg bg-surface-2 p-1" role="group" aria-label="Contribution grouping">{(['meal', 'food'] as const).map(b => <button type="button" key={b} aria-pressed={breakdown === b} onClick={() => setBreakdown(b)} className={cx('rounded-md px-2.5 py-1 text-xs', breakdown === b && 'bg-surface shadow-sm')}>By {b}</button>)}</div>}</div>
-          <div className="mt-5 space-y-3" role="list" aria-label={`${selectedNutrient.label} contributions`}>
-            {rows.map(row => <div key={row.id} role="listitem"><div className="mb-1 flex items-baseline justify-between gap-3 text-xs"><span className="min-w-0" title={row.name}><span className="block truncate">{row.name}{row.from && row.from !== draft.title && <span className="ml-1.5 text-[10px] text-muted">from {row.from}</span>}</span>{row.scaled && row.scaled.amount > 0 && <span className="tnum block text-[11px] text-muted" data-testid="explorer-contribution-amount"><span className="font-medium text-ink-2">{amountLabel(row.scaled.amount, row.scaled.unit)}</span> {amountBasis}{row.scaled.measure !== row.scaled.unit && !/^(g|ml)\b/.test(row.scaled.measure) ? ` · ${fmt(row.scaled.qty, row.scaled.qty < 10 ? 2 : 0)} × ${row.scaled.measure}` : ''}</span>}{!row.scaled && row.items.length > 1 && <span className="block text-[11px] text-muted">{row.items.length} foods</span>}</span><span className="tnum shrink-0"><span className="font-medium">{amountText(row.result, focus)} {selectedNutrient.unit}</span>{knownTotal > 0 && row.result.value != null && <span className="ml-2 inline-block w-9 text-right text-muted">{Math.round((row.result.value / knownTotal) * 100)}%</span>}</span></div><div className="h-2 overflow-hidden rounded-full bg-track" aria-hidden="true"><div className="h-full rounded-full transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${max ? ((row.result.value ?? 0) / max) * 100 : 0}%`, background: row.colour }} /></div>{(row.result.status !== 'complete' || row.result.lowEst) && <p className="mt-0.5 text-[10px] text-muted">{valueStatus(row.result)}</p>}</div>)}
-            {!rows.length && <div className="rounded-lg border border-dashed border-line px-6 py-8 text-center text-xs text-muted">Your foods will appear here, ranked by their contribution to the selected nutrient.</div>}
+        {/* pick a nutrient on the left, see where it comes from on the right, without scrolling */}
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="order-2 lg:sticky lg:order-1" style={{ top: barHeight }}><Card className="flex flex-col">
+            <div className="space-y-2 border-b border-line p-3">
+              <div><h2 className="text-sm font-semibold">All nutrients</h2><p className="text-[11px] text-muted">Select one to see where it comes from</p></div>
+              <div className="flex flex-wrap gap-2"><Input aria-label="Find a nutrient" placeholder="Find a nutrient…" value={nutrientSearch} onChange={e => setNutrientSearch(e.target.value)} className="h-8 min-w-[8rem] flex-1 text-xs" /><Select aria-label="Nutrient group" value={group} onChange={e => setGroup(e.target.value)} className="h-8 w-auto flex-1 py-0 text-xs">{['All nutrients', ...GROUP_ORDER].map(g => <option key={g}>{g}</option>)}</Select></div>
+            </div>
+            <div className="scroll-thin lg:max-h-[var(--pane-max)] lg:min-h-60 lg:overflow-y-auto" style={{ '--pane-max': `calc(100dvh - ${barHeight + 120}px)` } as React.CSSProperties}>
+              <table className="w-full text-xs"><tbody className="divide-y divide-line">{nutrientRows.map(n => { const v = totals.nutrients[n.id]; return <tr key={n.id} className={cx('cursor-pointer', focus === n.id ? 'bg-accent-wash' : 'hover:bg-surface-2')} onClick={() => chooseNutrient(n.id)}>
+                <td className="py-1.5 pr-2 pl-3"><button type="button" onClick={e => { e.stopPropagation(); chooseNutrient(n.id) }} className={cx('text-left font-medium', focus === n.id ? 'text-accent-ink' : 'text-ink')} aria-label={`Chart ${n.label}`}>{n.label}</button></td>
+                <td className="tnum py-1.5 pr-2 text-right whitespace-nowrap">{amountText(v, n.id)} <span className="text-muted">{n.unit}</span></td>
+                <td className="py-1.5 pr-3 text-right" title={`${valueStatus(v)}${v.missing.length ? `: ${v.missing.join('; ')}` : ''}`}><span className={cx('inline-block h-1.5 w-1.5 rounded-full', v.status === 'complete' && !v.lowEst ? 'bg-good' : v.status === 'partial' || v.lowEst ? 'bg-warning' : 'bg-line-strong')} /><span className="sr-only">{valueStatus(v)}</span></td>
+              </tr> })}</tbody></table>
+              {!nutrientRows.length && <p className="p-4 text-xs text-muted">No nutrients match. Try a different search or group.</p>}
+            </div>
+            <p className="border-t border-line px-3 py-1.5 text-[10.5px] text-muted"><span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-good" />complete <span className="mr-1 ml-2 inline-block h-1.5 w-1.5 rounded-full bg-warning" />known subtotal (≥) <span className="mr-1 ml-2 inline-block h-1.5 w-1.5 rounded-full bg-line-strong" />no value</p>
+          </Card></div>
+
+          <div ref={detailRef} className="order-1 lg:sticky lg:order-2" style={{ top: barHeight, scrollMarginTop: barHeight + 8 }}>
+            <Card className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">Where the {selectedNutrient.label.toLowerCase()} comes from</h2><Select className="h-8 w-auto max-w-full py-0 text-xs" aria-label="Chart nutrient" value={focus} onChange={e => setFocus(e.target.value)}>{NUTRIENTS.map(n => <option key={n.id} value={n.id}>{n.label} ({n.unit})</option>)}</Select></div>
+              <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><div><span className="tnum text-3xl font-semibold tracking-tight">{amountText(selectedValue, focus)}</span><span className="ml-1.5 text-sm text-muted">{selectedNutrient.unit}</span><p className="mt-0.5 text-xs text-muted">{basisLabel} · {valueStatus(selectedValue)}</p></div>{mode === 'day' && <div className="flex rounded-lg bg-surface-2 p-1" role="group" aria-label="Contribution grouping">{(['meal', 'food'] as const).map(b => <button type="button" key={b} aria-pressed={breakdown === b} onClick={() => setBreakdown(b)} className={cx('rounded-md px-2.5 py-1 text-xs', breakdown === b && 'bg-surface shadow-sm')}>By {b}</button>)}</div>}</div>
+              <div className="scroll-thin mt-4 space-y-3 pr-1 lg:max-h-[var(--pane-max)] lg:overflow-y-auto" role="list" aria-label={`${selectedNutrient.label} contributions`} style={{ '--pane-max': `calc(100dvh - ${barHeight + 200}px)` } as React.CSSProperties}>
+                {rows.map(row => <div key={row.id} role="listitem"><div className="mb-1 flex items-baseline justify-between gap-3 text-xs"><span className="min-w-0" title={row.name}><span className="block truncate">{row.name}{row.from && row.from !== draft.title && <span className="ml-1.5 text-[10px] text-muted">from {row.from}</span>}</span>{row.scaled && row.scaled.amount > 0 && <span className="tnum block text-[11px] text-muted" data-testid="explorer-contribution-amount"><span className="font-medium text-ink-2">{amountLabel(row.scaled.amount, row.scaled.unit)}</span> {amountBasis}{row.scaled.measure !== row.scaled.unit && !/^(g|ml)\b/.test(row.scaled.measure) ? ` · ${fmt(row.scaled.qty, row.scaled.qty < 10 ? 2 : 0)} × ${row.scaled.measure}` : ''}</span>}{!row.scaled && row.items.length > 1 && <span className="block text-[11px] text-muted">{row.items.length} foods</span>}</span><span className="tnum shrink-0"><span className="font-medium">{amountText(row.result, focus)} {selectedNutrient.unit}</span>{knownTotal > 0 && row.result.value != null && <span className="ml-2 inline-block w-9 text-right text-muted">{Math.round((row.result.value / knownTotal) * 100)}%</span>}</span></div><div className="h-2 overflow-hidden rounded-full bg-track" aria-hidden="true"><div className="h-full rounded-full transition-[width] duration-200 motion-reduce:transition-none" style={{ width: `${max ? ((row.result.value ?? 0) / max) * 100 : 0}%`, background: row.colour }} /></div>{(row.result.status !== 'complete' || row.result.lowEst) && <p className="mt-0.5 text-[10px] text-muted">{valueStatus(row.result)}</p>}</div>)}
+                {!rows.length && <div className="rounded-lg border border-dashed border-line px-6 py-8 text-center text-xs text-muted">Add foods on the left. They appear here, ranked by how much {selectedNutrient.label.toLowerCase()} they provide, with the amount of each.</div>}
+              </div>
+              {rows.length > 0 && <p className="mt-3 text-[11px] text-muted">{selectedValue.missing.length ? `Missing or partial data for ${[...new Set(selectedValue.missing)].join('; ')}. Known subtotals are not complete totals.` : 'Bars share a scale within this nutrient.'}</p>}
+            </Card>
           </div>
-          {rows.length > 0 && <p className="mt-4 text-[11px] text-muted">Bars share a scale within this nutrient. {selectedValue.missing.length ? `Missing or partial data for ${[...new Set(selectedValue.missing)].join('; ')}. Known subtotals are not complete totals.` : 'Select any nutrient to explore its contributors.'}</p>}
-        </Card>
+        </div>
 
-        <Card>
-          <div className="space-y-3 border-b border-line p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Full nutrient profile</h2><span className="text-xs text-muted">{basisLabel}</span></div><div className="flex flex-wrap gap-2"><Input aria-label="Find a nutrient" placeholder="Find a nutrient…" value={nutrientSearch} onChange={e => setNutrientSearch(e.target.value)} className="min-w-32 flex-1 text-xs" /><Select aria-label="Nutrient group" value={group} onChange={e => setGroup(e.target.value)} className="w-auto text-xs">{['All nutrients', ...GROUP_ORDER].map(g => <option key={g}>{g}</option>)}</Select></div></div>
-          <div className="max-h-[440px] overflow-auto"><table className="w-full text-xs"><thead className="sticky top-0 bg-surface-2 text-left text-muted"><tr><th className="px-4 py-2 font-medium">Nutrient</th><th className="px-4 py-2 text-right font-medium">Amount</th><th className="px-4 py-2 font-medium">Data</th></tr></thead><tbody className="divide-y divide-line">{nutrientRows.map(n => { const v = totals.nutrients[n.id]; return <tr key={n.id} className={focus === n.id ? 'bg-accent-wash' : ''}><td className="px-4 py-2"><button type="button" onClick={() => setFocus(n.id)} className="text-left font-medium text-accent-ink hover:underline" aria-label={`Chart ${n.label}`}>{n.label}</button></td><td className="tnum whitespace-nowrap px-4 py-2 text-right">{amountText(v, n.id)} <span className="text-muted">{n.unit}</span></td><td className="px-4 py-2 text-[11px] text-muted" title={v.missing.join('; ')}>{valueStatus(v)}</td></tr> })}</tbody></table>{!nutrientRows.length && <p className="p-4 text-xs text-muted">No nutrients match. Try a different search or group.</p>}</div>
-        </Card>
+        <details className="mt-4 rounded-xl border border-line bg-surface p-4">
+          <summary className="cursor-pointer text-sm font-medium">Sources & calculation notes <span className="ml-2 text-xs font-normal text-muted">For your research and writing</span></summary>
+          <div className="mt-4 grid gap-5 text-xs leading-relaxed lg:grid-cols-2"><div><h3 className="mb-1 font-semibold">How to interpret these figures</h3><p className="text-ink-2">{EXPLORER_METHOD}</p><p className="mt-2 text-ink-2">Nutrients use a snapshot of the food when added. Remove and re-add a food to use subsequent library edits. Results describe the foods entered, without comparing them with a person’s requirements. Exports include the basis, amounts, source IDs, links, available label dates and source nutrient values.</p><p className="mt-2 text-ink-2">This workspace stays available as you move around the app. It clears on refresh or sign-out. Client records are unchanged.</p><a href={COFID_SOURCE} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-accent-ink underline">McCance and Widdowson’s CoFID 2021 · dataset & user guide</a></div><div><h3 className="mb-1 font-semibold">Foods in this exploration</h3>{!entered.length && <p className="text-muted">Source details appear when you add foods.</p>}<ul className="divide-y divide-line">{entered.map(i => { const source = sourceOf(i.food); return <li key={i.id} className="py-2"><div className="font-medium">{i.name} <span className="font-normal text-muted">· {i.foodId}</span></div><div className="text-muted">{source.label}{source.checked ? ` · checked ${source.checked}` : ''}{source.version ? ` · ${source.version}` : ''} · {fmt(i.amount, 1)} {i.unit}</div><div className="mt-1 flex gap-3">{source.url && <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">Source</a>}<Link to={`/foods?food=${encodeURIComponent(i.foodId)}`} className="text-accent-ink underline">Library entry</Link></div>{i.food.labelSource?.bounds && <p className="mt-1 text-muted">Label limits: {Object.entries(i.food.labelSource.bounds).map(([id, bound]) => `${NUTRIENT_BY_ID[id]?.label ?? id} ${bound} ${NUTRIENT_BY_ID[id]?.unit ?? ''}`).join('; ')} per {i.food.per} {i.unit}. These are not exact values and are excluded from totals.</p>}</li> })}</ul></div></div>
+        </details>
       </div>
     </div>
-
-    <details className="rounded-xl border border-line bg-surface p-4">
-      <summary className="cursor-pointer text-sm font-medium">Sources & calculation notes <span className="ml-2 text-xs font-normal text-muted">For your research and writing</span></summary>
-      <div className="mt-4 grid gap-5 text-xs leading-relaxed lg:grid-cols-2"><div><h3 className="mb-1 font-semibold">How to interpret these figures</h3><p className="text-ink-2">{EXPLORER_METHOD}</p><p className="mt-2 text-ink-2">Nutrients use a snapshot of the food when added. Remove and re-add a food to use subsequent library edits. Results describe the foods entered, without comparing them with a person’s requirements. Exports include the basis, amounts, source IDs, links, available label dates and source nutrient values.</p><a href={COFID_SOURCE} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-accent-ink underline">McCance and Widdowson’s CoFID 2021 · dataset & user guide</a></div><div><h3 className="mb-1 font-semibold">Foods in this exploration</h3>{!entered.length && <p className="text-muted">Source details appear when you add foods.</p>}<ul className="divide-y divide-line">{entered.map(i => { const source = sourceOf(i.food); return <li key={i.id} className="py-2"><div className="font-medium">{i.name} <span className="font-normal text-muted">· {i.foodId}</span></div><div className="text-muted">{source.label}{source.checked ? ` · checked ${source.checked}` : ''}{source.version ? ` · ${source.version}` : ''} · {fmt(i.amount, 1)} {i.unit}</div><div className="mt-1 flex gap-3">{source.url && <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-accent-ink underline">Source</a>}<Link to={`/foods?food=${encodeURIComponent(i.foodId)}`} className="text-accent-ink underline">Library entry</Link></div>{i.food.labelSource?.bounds && <p className="mt-1 text-muted">Label limits: {Object.entries(i.food.labelSource.bounds).map(([id, bound]) => `${NUTRIENT_BY_ID[id]?.label ?? id} ${bound} ${NUTRIENT_BY_ID[id]?.unit ?? ''}`).join('; ')} per {i.food.per} {i.unit}. These are not exact values and are excluded from totals.</p>}</li> })}</ul></div></div>
-    </details>
     {showRecipe && <RecipeEditor initial={{ name: draft.title, recipe: { ingredients: entered.map(({ food: _food, ...ingredient }) => ingredient), portions: draft.portions, cookedWeight: draft.cookedWeight ?? whole.finalWeight ?? undefined } }} onClose={() => setShowRecipe(false)} onSaved={f => setSavedRecipe('u:' + f.id)} />}
   </div>
 }
